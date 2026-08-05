@@ -63,7 +63,7 @@ describe('kmbAPI', () => {
   describe('fetchRouteStops', () => {
     it('fetches stops for a specific route and bound', async () => {
       const mockRouteStops = [
-        { co: 'KMB', route: '1A', dir: 'O', seq: 1, stop: 'ABC123' },
+        { route: '1A', bound: 'O', service_type: '1', seq: 1, stop: 'ABC123' },
       ];
       mockFetch.mockResolvedValueOnce({
         ok: true,

@@ -36,7 +36,7 @@ export default function NearbyScreen() {
     requestPermission,
     getPosition,
   } = useLocationStore();
-  const { stops, loadRouteData } = useRouteStore();
+  const { stops, loadRouteData, getRoutesForStop } = useRouteStore();
 
   useEffect(() => {
     loadRouteData();
@@ -89,20 +89,28 @@ export default function NearbyScreen() {
 
   return (
     <ScrollView style={styles.list}>
-      {nearbyStops.map((item) => (
-        <NearbyStopCard
-          key={item.stop}
-          stopName={isEN ? item.name_en : item.name_tc}
-          distance={item.distance}
-          routes={['—']}
-          onPress={() => {
-            const routeId = '1A';
-            router.push(
-              `/eta/${routeId}?stopId=${item.stop}&bound=O`
-            );
-          }}
-        />
-      ))}
+      {nearbyStops.map((stop) => {
+        const routes = getRoutesForStop(stop.stop);
+        const routeIds = routes.map((r) => r.route).slice(0, 5);
+        // Pick the first route for navigation, prefer normal service
+        const firstRoute = routes[0];
+
+        return (
+          <NearbyStopCard
+            key={stop.stop}
+            stopName={isEN ? stop.name_en : stop.name_tc}
+            distance={stop.distance}
+            routes={routeIds.length > 0 ? routeIds : ['—']}
+            onPress={() => {
+              if (firstRoute) {
+                router.push(
+                  `/eta/${firstRoute.route}?bound=${firstRoute.bound}&stopId=${stop.stop}&serviceType=${firstRoute.serviceType}`
+                );
+              }
+            }}
+          />
+        );
+      })}
     </ScrollView>
   );
 }

@@ -19,9 +19,9 @@ export interface Stop {
 }
 
 export interface RouteStop {
-  co: string;
   route: string;
-  dir: 'O' | 'I';
+  bound: 'O' | 'I';
+  service_type: string;
   seq: number;
   stop: string;
 }
@@ -63,6 +63,11 @@ export async function fetchAllRoutes(): Promise<Route[]> {
 
 export async function fetchAllStops(): Promise<Stop[]> {
   const data = await apiGet<{ data: Stop[] }>('/stop/');
+  return data.data;
+}
+
+export async function fetchAllRouteStops(): Promise<RouteStop[]> {
+  const data = await apiGet<{ data: RouteStop[] }>('/route-stop/');
   return data.data;
 }
 
