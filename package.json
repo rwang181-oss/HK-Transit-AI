@@ -1,0 +1,43 @@
+{
+  "name": "hk-transit-ai",
+  "version": "1.0.0",
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "web": "expo start --web",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "test": "jest",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "expo": "~57.0.0",
+    "expo-constants": "~18.0.0",
+    "expo-linking": "~8.0.0",
+    "expo-location": "~19.0.0",
+    "expo-localization": "~17.0.0",
+    "expo-router": "~5.0.0",
+    "expo-status-bar": "~3.0.0",
+    "i18next": "^24.0.0",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "react-i18next": "^15.0.0",
+    "react-native": "0.79.0",
+    "react-native-web": "~0.20.0",
+    "zustand": "^5.0.0",
+    "@react-native-async-storage/async-storage": "2.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.0.0",
+    "jest": "^29.0.0",
+    "jest-expo": "~57.0.0",
+    "typescript": "~5.7.0"
+  },
+  "jest": {
+    "preset": "jest-expo",
+    "transformIgnorePatterns": [
+      "node_modules/(?!(expo|expo-router|@expo|expo-constants|expo-linking|expo-localization|expo-location|expo-status-bar|react-native|react-native-web|@react-native|i18next|react-i18next|zustand)/)"
+    ]
+  },
+  "private": true
+}

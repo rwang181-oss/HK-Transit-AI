@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "HK Transit",
+    "slug": "hk-transit-ai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "hk-transit",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#F2F2F7"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "name": "HK Transit",
+      "shortName": "HK Transit",
+      "lang": "en",
+      "themeColor": "#C41230",
+      "backgroundColor": "#F2F2F7",
+      "display": "standalone",
+      "orientation": "portrait"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-localization",
+      "expo-location"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
