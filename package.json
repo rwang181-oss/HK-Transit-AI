@@ -7,7 +7,7 @@
     "web": "expo start --web",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "build:web": "EXPO_PUBLIC_BASE_PATH=/HK-Transit-AI npx expo export --platform web && sed -i 's|/_expo/loaders|/HK-Transit-AI/_expo/loaders|g' dist/_expo/static/js/web/entry-*.js",
+    "build:web": "EXPO_PUBLIC_BASE_PATH=/HK-Transit-AI npx expo export --platform web && sed -i 's|/_expo/loaders|/HK-Transit-AI/_expo/loaders|g' dist/_expo/static/js/web/entry-*.js && touch dist/.nojekyll",
     "deploy": "npm run build:web && npx gh-pages -d dist -m 'deploy: web build'",
     "test": "jest",
     "lint": "eslint ."
