@@ -1,8 +1,9 @@
 {
+  "appName": "港巴通",
   "home": {
-    "title": "HK Transit",
-    "emptyTitle": "歡迎使用 HK Transit",
-    "emptySubtitle": "添加常用路線開始使用",
+    "title": "港巴通",
+    "emptyTitle": "歡迎使用港巴通",
+    "emptySubtitle": "添加常用路線，港巴通幫你慳時間",
     "goToSearch": "搜尋路線",
     "loading": "載入中...",
     "error": "無法載入到站時間"

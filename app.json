@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "HK Transit",
+    "name": "港巴通 HK Transit",
     "slug": "hk-transit-ai",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -12,8 +12,8 @@
     },
     "web": {
       "favicon": "./assets/favicon.png",
-      "name": "HK Transit",
-      "shortName": "HK Transit",
+      "name": "港巴通 HK Transit",
+      "shortName": "港巴通",
       "lang": "en",
       "themeColor": "#C41230",
       "backgroundColor": "#F2F2F7",
