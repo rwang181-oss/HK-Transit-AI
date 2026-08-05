@@ -39,6 +39,8 @@ HK-Transit-AI/
 └── docs/                   # Documentation
 ```
 
+**GitHub:** [github.com/rwang181-oss/HK-Transit-AI](https://github.com/rwang181-oss/HK-Transit-AI)
+
 ## Quick Start / 快速開始
 
 ```bash
