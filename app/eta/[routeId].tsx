@@ -33,6 +33,7 @@ export default function ETAScreen() {
     isRouteFavorited, isStopFavorited,
   } = useFavoriteStore();
 
+  const [expandedStop, setExpandedStop] = useState<string | null>(null);
   const [bound, setBound] = useState<'O' | 'I'>(
     initialBound === 'I' ? 'I' : 'O'
   );
@@ -55,6 +56,7 @@ export default function ETAScreen() {
           ? initialStopId
           : stopList[0].stop;
       startAutoRefresh(targetStop, routeId, serviceType);
+      setExpandedStop(targetStop);
     }
     return () => stopAutoRefresh();
   }, [stopList.length]);
@@ -143,9 +145,13 @@ export default function ETAScreen() {
               stopName={name || item.stop}
               seq={item.seq}
               etas={etas}
-              onPress={() =>
-                fetchETAForStop(item.stop, routeId, serviceType)
-              }
+              isExpanded={expandedStop === item.stop}
+              onPress={() => {
+                fetchETAForStop(item.stop, routeId, serviceType);
+                setExpandedStop(
+                  expandedStop === item.stop ? null : item.stop
+                );
+              }}
               isFavorite={isStopFavorited(favStopId)}
               onToggleFavorite={() => {
                 if (isStopFavorited(favStopId)) {

@@ -10,6 +10,7 @@ interface StopItemProps {
   onPress: () => void;
   isFavorite: boolean;
   onToggleFavorite: () => void;
+  isExpanded: boolean;
 }
 
 export function StopItem({
@@ -19,48 +20,72 @@ export function StopItem({
   onPress,
   isFavorite,
   onToggleFavorite,
+  isExpanded,
 }: StopItemProps) {
   return (
     <Pressable style={styles.container} onPress={onPress}>
-      <View style={styles.seqBadge}>
-        <Text style={styles.seqText}>{seq}</Text>
+      <View style={styles.row}>
+        <View style={styles.seqBadge}>
+          <Text style={styles.seqText}>{seq}</Text>
+        </View>
+        <View style={styles.content}>
+          <Text style={styles.name} numberOfLines={1}>
+            {stopName}
+          </Text>
+          {/* Collapsed: show a one-line preview of next bus */}
+          {!isExpanded && etas.length > 0 && (
+            <ETARow eta={etas[0]} isUrgent />
+          )}
+        </View>
+        <Pressable onPress={onToggleFavorite} style={styles.favButton}>
+          <Text style={[styles.favIcon, isFavorite && styles.favActive]}>
+            {isFavorite ? '★' : '☆'}
+          </Text>
+        </Pressable>
       </View>
-      <View style={styles.content}>
-        <Text style={styles.name} numberOfLines={1}>
-          {stopName}
-        </Text>
-        <View style={styles.etas}>
+      {/* Expanded: show all ETAs big */}
+      {isExpanded && (
+        <View style={styles.expanded}>
           {etas.length === 0 ? (
             <Text style={styles.noETA}>—</Text>
           ) : (
-            etas.slice(0, 3).map((eta, i) => (
-              <ETARow
-                key={`${eta.eta_seq}-${i}`}
-                eta={eta}
-                isUrgent={i === 0}
-              />
-            ))
+            <View style={styles.etaList}>
+              {etas.slice(0, 3).map((eta, i) => {
+                const mins = Math.max(
+                  0,
+                  Math.floor(
+                    (new Date(eta.eta).getTime() - Date.now()) / 60000
+                  )
+                );
+                const text = mins === 0 ? 'Arriving' : `${mins} min`;
+                return (
+                  <ETARow
+                    key={`${eta.eta_seq}-${i}`}
+                    eta={eta}
+                    isUrgent={i === 0}
+                  />
+                );
+              })}
+            </View>
           )}
         </View>
-      </View>
-      <Pressable onPress={onToggleFavorite} style={styles.favButton}>
-        <Text style={[styles.favIcon, isFavorite && styles.favActive]}>
-          {isFavorite ? '★' : '☆'}
-        </Text>
-      </Pressable>
+      )}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: COLORS.bgCard,
-    padding: 12,
     marginHorizontal: 16,
     marginVertical: 3,
     borderRadius: 12,
+    overflow: 'hidden',
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
   },
   seqBadge: {
     width: 32,
@@ -78,15 +103,15 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   name: {
     fontSize: 16,
     color: COLORS.textPrimary,
-    marginBottom: 4,
-  },
-  etas: {
-    flexDirection: 'row',
-    gap: 6,
+    flex: 1,
+    marginRight: 8,
   },
   noETA: {
     fontSize: 14,
@@ -101,5 +126,15 @@ const styles = StyleSheet.create({
   },
   favActive: {
     color: '#FFB800',
+  },
+  expanded: {
+    paddingHorizontal: 12,
+    paddingBottom: 14,
+    paddingTop: 0,
+  },
+  etaList: {
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'center',
   },
 });
