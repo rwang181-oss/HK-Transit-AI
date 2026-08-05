@@ -42,6 +42,10 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen
+        name="journey"
+        options={{ title: t('journey.title'), tabBarLabel: t('journey.title') }}
+      />
+      <Tabs.Screen
         name="index"
         options={{ title: t('home.title'), tabBarLabel: t('home.title') }}
       />
@@ -56,10 +60,6 @@ export default function TabLayout() {
       <Tabs.Screen
         name="favorites"
         options={{ title: t('favorites.title'), tabBarLabel: t('favorites.title') }}
-      />
-      <Tabs.Screen
-        name="journey"
-        options={{ title: t('journey.title'), tabBarLabel: t('journey.title') }}
       />
     </Tabs>
   );

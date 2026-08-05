@@ -7,94 +7,72 @@ import {
   ActivityIndicator,
   Pressable,
 } from 'react-native';
-import { useLocalSearchParams, Stack } from 'expo-router';
+import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
-import { useJourneyStore } from '@/src/stores/journeyStore';
-import type { Itinerary, ItineraryLeg } from '@/src/journey/planner/planner';
+import {
+  useJourneyStore,
+  type JourneyOption,
+} from '@/src/stores/journeyStore';
+import { TransitMap } from '@/src/components/TransitMap';
 import { COLORS } from '@/src/utils/constants';
-
-function LegName({
-  hubId,
-  isEN,
-  getHubById,
-}: {
-  hubId: string;
-  isEN: boolean;
-  getHubById: (id: string) => any;
-}) {
-  const h = getHubById(hubId);
-  if (!h) return null;
-  const name = isEN ? h.name_en : h.name_tc || h.name_sc;
-  return <Text style={styles.legName}>{name}</Text>;
-}
-
-function ExpandedLeg({ leg, isEN, getHubById }: { leg: ItineraryLeg; isEN: boolean; getHubById: any }) {
-  const from = getHubById(leg.fromHubId);
-  const to = getHubById(leg.toHubId);
-  if (leg.kind === 'transfer') {
-    return (
-      <View style={styles.detailRow}>
-        <Text style={styles.detailLabel}>🚶 步行</Text>
-        <Text style={styles.detailValue}>
-          {Math.round(leg.minutes)} 分鐘
-        </Text>
-      </View>
-    );
-  }
-  const fromName = isEN ? from?.name_en : from?.name_tc || from?.name_sc;
-  const toName = isEN ? to?.name_en : to?.name_tc || to?.name_sc;
-  return (
-    <View style={styles.detailCard}>
-      <View style={styles.detailHeader}>
-        <Text style={styles.detailProvider}>{leg.provider}</Text>
-        <Text style={styles.detailRoute}>{leg.route}</Text>
-        <Text style={styles.detailTime}>≈ {Math.round(leg.minutes)} 分鐘</Text>
-      </View>
-      <View style={styles.detailStops}>
-        <Text style={styles.detailStop} numberOfLines={2}>
-          ① {fromName}
-        </Text>
-        <Text style={styles.detailArrow}>↓</Text>
-        <Text style={styles.detailStop} numberOfLines={2}>
-          ② {toName}
-        </Text>
-      </View>
-    </View>
-  );
-}
 
 export default function JourneyResultScreen() {
   const { t, i18n } = useTranslation();
   const isEN = i18n.language === 'en';
-  const { from, to } = useLocalSearchParams<{ from: string; to: string }>();
+  const router = useRouter();
   const { status, loadData, getHubById, plan } = useJourneyStore();
-  const [itineraries, setItineraries] = useState<Itinerary[] | null>(null);
+
+  const params = useLocalSearchParams<{
+    fromLat: string;
+    fromLng: string;
+    fromName: string;
+    toLat: string;
+    toLng: string;
+    toName: string;
+  }>();
+
+  const [options, setOptions] = useState<JourneyOption[] | null>(null);
   const [expanded, setExpanded] = useState<number | null>(0);
+  const [planning, setPlanning] = useState(false);
+
+  const fromPoint = {
+    lat: parseFloat(params.fromLat || '0'),
+    lng: parseFloat(params.fromLng || '0'),
+    name: decodeURIComponent(params.fromName || ''),
+  };
+  const toPoint = {
+    lat: parseFloat(params.toLat || '0'),
+    lng: parseFloat(params.toLng || '0'),
+    name: decodeURIComponent(params.toName || ''),
+  };
 
   useEffect(() => {
     loadData();
   }, []);
 
   useEffect(() => {
-    if (status === 'ready' && from && to) {
-      setItineraries(plan(from, to));
+    if (status === 'ready' && !options && !planning) {
+      setPlanning(true);
+      plan(fromPoint, toPoint).then((o) => {
+        setOptions(o);
+        setPlanning(false);
+      });
     }
-  }, [status, from, to]);
+  }, [status]);
 
-  const fromHub = getHubById(from || '');
-  const toHub = getHubById(to || '');
-  const fromName = fromHub
-    ? isEN
-      ? fromHub.name_en
-      : fromHub.name_tc || fromHub.name_sc
-    : '?';
-  const toName = toHub
-    ? isEN
-      ? toHub.name_en
-      : toHub.name_tc || toHub.name_sc
-    : '?';
+  const hubName = (hubId: string) => {
+    const h = getHubById(hubId);
+    return h ? (isEN ? h.name_en : h.name_tc || h.name_sc) : '';
+  };
 
-  if (status === 'loading') {
+  const openStopEta = (opt: JourneyOption) => {
+    if (!opt.boardStopId || !opt.boardRoute) return;
+    router.push(
+      `/journey/stop-eta?provider=${opt.boardProvider}&route=${opt.boardRoute}&stopId=${opt.boardStopId}&name=${encodeURIComponent(hubName(opt.boardHub.id) || opt.boardHub.name_tc || '')}` as any
+    );
+  };
+
+  if (status === 'loading' || (planning && !options)) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={COLORS.hkRed} />
@@ -103,7 +81,7 @@ export default function JourneyResultScreen() {
     );
   }
 
-  const list = itineraries ?? [];
+  const list = options ?? [];
 
   return (
     <View style={styles.container}>
@@ -112,7 +90,7 @@ export default function JourneyResultScreen() {
       />
       <View style={styles.header}>
         <Text style={styles.routeSummary} numberOfLines={2}>
-          {fromName} → {toName}
+          {fromPoint.name} → {toPoint.name}
         </Text>
       </View>
 
@@ -122,79 +100,166 @@ export default function JourneyResultScreen() {
             <Text style={styles.noResult}>{t('journey.noResult')}</Text>
           </View>
         ) : (
-          list.map((itin, idx) => (
-            <Pressable
-              key={idx}
-              style={[styles.card, idx === 0 && styles.cardFastest]}
-              onPress={() => setExpanded(expanded === idx ? null : idx)}
-            >
-              <View style={styles.cardHeader}>
-                <Text style={styles.totalTime}>
-                  {itin.totalMinutes} {t('eta.min')}
-                </Text>
-                <View style={styles.badges}>
-                  {idx === 0 && (
-                    <View style={styles.fastestBadge}>
-                      <Text style={styles.fastestText}>
-                        {t('journey.fastest')}
-                      </Text>
+          list.map((opt, idx) => {
+            const firstRide = opt.itinerary.legs.find((l) => l.kind === 'ride');
+            return (
+              <View
+                key={opt.id}
+                style={[styles.card, idx === 0 && styles.cardFastest]}
+              >
+                {/* Header */}
+                <Pressable onPress={() => setExpanded(expanded === idx ? null : idx)}>
+                  <View style={styles.cardHeader}>
+                    <Text style={styles.totalTime}>
+                      {opt.totalMinutes} {t('eta.min')}
+                    </Text>
+                    <View style={styles.badges}>
+                      {idx === 0 && (
+                        <View style={styles.fastestBadge}>
+                          <Text style={styles.fastestText}>
+                            {t('journey.fastest')}
+                          </Text>
+                        </View>
+                      )}
+                      {opt.itinerary.isDirect && (
+                        <View style={styles.directBadge}>
+                          <Text style={styles.directText}>
+                            {t('journey.direct')}
+                          </Text>
+                        </View>
+                      )}
                     </View>
-                  )}
-                  {itin.isDirect && (
-                    <View style={styles.directBadge}>
-                      <Text style={styles.directText}>
-                        {t('journey.direct')}
+                  </View>
+                </Pressable>
+
+                {/* Steps summary */}
+                <View style={styles.steps}>
+                  <View style={styles.stepRow}>
+                    <Text style={styles.stepIcon}>🚶</Text>
+                    <Text style={styles.stepText}>
+                      {Math.round(opt.walkToStationMin)}{' '}
+                      {isEN ? 'min walk to station' : '分鐘步行到車站'}
+                      {firstRide ? `（${firstRide.route}）` : ''}
+                    </Text>
+                  </View>
+                  {firstRide && (
+                    <Pressable
+                      style={styles.stepRow}
+                      onPress={() => openStopEta(opt)}
+                    >
+                      <Text style={styles.stepIcon}>🚌</Text>
+                      <Text style={[styles.stepText, styles.busLine]}>
+                        {opt.boardProvider} {firstRide.route} →
+                        {hubName(firstRide.toHubId)}
                       </Text>
-                    </View>
+                      <Text style={styles.nextBus}>
+                        {opt.nextBusMin > 0
+                          ? `${opt.nextBusMin} ${t('eta.min')}`
+                          : '—'}
+                      </Text>
+                    </Pressable>
                   )}
+                  <View style={styles.stepRow}>
+                    <Text style={styles.stepIcon}>🚶</Text>
+                    <Text style={styles.stepText}>
+                      {Math.round(opt.walkFromStationMin)}{' '}
+                      {isEN ? 'min walk to destination' : '分鐘步行到目的地'}
+                    </Text>
+                  </View>
                 </View>
+
+                {/* Catch-the-bus verdict */}
+                {firstRide && (
+                  <View
+                    style={[
+                      styles.verdict,
+                      opt.catchable ? styles.verdictOk : styles.verdictWarn,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.verdictText,
+                        opt.catchable
+                          ? styles.verdictTextOk
+                          : styles.verdictTextWarn,
+                      ]}
+                    >
+                      {opt.catchable
+                        ? isEN
+                          ? `You can make it (walk ${Math.round(opt.walkToStationMin)} min, bus in ${opt.nextBusMin} min)`
+                          : `可以趕上（步行 ${Math.round(opt.walkToStationMin)} 分鐘，巴士 ${opt.nextBusMin} 分鐘後到）`
+                        : isEN
+                          ? `You'll miss it — walk ${Math.round(opt.walkToStationMin)} min but bus is only ${opt.nextBusMin} min away`
+                          : `趕不上 — 步行需 ${Math.round(opt.walkToStationMin)} 分鐘，巴士 ${opt.nextBusMin} 分鐘後到，建議提前出發`}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Expanded: full legs */}
+                {expanded === idx && (
+                  <View style={styles.expanded}>
+                    {opt.itinerary.legs.map((leg, i) => {
+                      if (leg.kind === 'transfer') {
+                        return (
+                          <View key={i} style={styles.transferLeg}>
+                            <Text style={styles.transferText}>
+                              ⇄ {Math.round(leg.minutes)} {t('eta.min')}
+                            </Text>
+                          </View>
+                        );
+                      }
+                      const fromName = hubName(leg.fromHubId);
+                      const toName = hubName(leg.toHubId);
+                      return (
+                        <Pressable
+                          key={i}
+                          style={styles.rideLeg}
+                          onPress={() => openStopEta(opt)}
+                        >
+                          <View style={styles.modeChip}>
+                            <Text style={styles.modeText}>
+                              {t(`providers.${leg.provider}`)}
+                            </Text>
+                          </View>
+                          <Text style={styles.routeNum}>{leg.route}</Text>
+                          <View style={styles.legInfo}>
+                            <Text style={styles.legName} numberOfLines={1}>
+                              {fromName} → {toName}
+                            </Text>
+                            <Text style={styles.legTime}>
+                              ≈ {Math.round(leg.minutes)} {t('eta.min')}
+                            </Text>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
+
+                <Text style={styles.tapHint}>
+                  {expanded === idx
+                    ? '▲'
+                    : isEN
+                      ? 'Tap for details ▼'
+                      : '點開查看詳情 ▼'}
+                </Text>
               </View>
-
-              {itin.transfers > 0 && (
-                <Text style={styles.transferNote}>
-                  {t('journey.transfer', { count: itin.transfers })}
-                </Text>
-              )}
-
-              {/* Collapsed: summary chips */}
-              {expanded !== idx && (
-                <View style={styles.chips}>
-                  {itin.legs
-                    .filter((l) => l.kind === 'ride')
-                    .map((leg, i) => (
-                      <View key={i} style={styles.chip}>
-                        <Text style={styles.chipText}>
-                          {t(`providers.${leg.provider}`)} {leg.route}
-                        </Text>
-                      </View>
-                    ))}
-                </View>
-              )}
-
-              {/* Expanded: detailed step-by-step */}
-              {expanded === idx && (
-                <View style={styles.expanded}>
-                  {itin.legs.map((leg, i) => (
-                    <ExpandedLeg
-                      key={i}
-                      leg={leg}
-                      isEN={isEN}
-                      getHubById={getHubById}
-                    />
-                  ))}
-                </View>
-              )}
-
-              <Text style={styles.tapHint}>
-                {expanded === idx
-                  ? '▲'
-                  : isEN
-                    ? 'Tap for details ▼'
-                    : '點開查看詳情 ▼'}
-              </Text>
-            </Pressable>
-          ))
+            );
+          })
         )}
+
+        {/* Map */}
+        <View style={styles.mapWrap}>
+          <TransitMap
+            center={{ lat: (fromPoint.lat + toPoint.lat) / 2, lng: (fromPoint.lng + toPoint.lng) / 2 }}
+            points={[
+              { lat: fromPoint.lat, lng: fromPoint.lng, kind: 'start', label: fromPoint.name },
+              { lat: toPoint.lat, lng: toPoint.lng, kind: 'end', label: toPoint.name },
+            ]}
+            height={200}
+          />
+        </View>
+
         <Text style={styles.estimateNote}>{t('journey.estimates')}</Text>
       </ScrollView>
     </View>
@@ -216,11 +281,7 @@ const styles = StyleSheet.create({
     margin: 16,
     borderRadius: 16,
   },
-  routeSummary: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-  },
+  routeSummary: { fontSize: 18, fontWeight: '700', color: COLORS.textPrimary },
   list: { flex: 1 },
   card: {
     backgroundColor: COLORS.bgCard,
@@ -234,15 +295,12 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 2,
   },
-  cardFastest: {
-    borderWidth: 2,
-    borderColor: COLORS.hkRed,
-  },
+  cardFastest: { borderWidth: 2, borderColor: COLORS.hkRed },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   totalTime: { fontSize: 28, fontWeight: '700', color: COLORS.textPrimary },
   badges: { flexDirection: 'row', gap: 6 },
@@ -260,64 +318,58 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   directText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
-  transferNote: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-    marginBottom: 8,
+  steps: { gap: 6 },
+  stepRow: { flexDirection: 'row', alignItems: 'center' },
+  stepIcon: { fontSize: 16, width: 26 },
+  stepText: { fontSize: 15, color: COLORS.textPrimary, flex: 1 },
+  busLine: { fontWeight: '600', color: COLORS.hkRed },
+  nextBus: { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary },
+  verdict: {
+    marginTop: 10,
+    borderRadius: 10,
+    padding: 10,
   },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: {
-    backgroundColor: COLORS.bgSystem,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  chipText: { fontSize: 13, color: COLORS.textPrimary, fontWeight: '600' },
-  expanded: { marginTop: 8 },
-  detailCard: {
-    backgroundColor: COLORS.bgSystem,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 8,
-  },
-  detailHeader: {
+  verdictOk: { backgroundColor: '#E8F8EF' },
+  verdictWarn: { backgroundColor: '#FFF3E0' },
+  verdictText: { fontSize: 13, fontWeight: '600' },
+  verdictTextOk: { color: '#1B873F' },
+  verdictTextWarn: { color: '#B26A00' },
+  expanded: { marginTop: 10 },
+  rideLeg: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E5E5EA',
   },
-  detailProvider: { fontSize: 13, color: COLORS.textSecondary },
-  detailRoute: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: COLORS.hkRed,
-    marginHorizontal: 8,
-  },
-  detailTime: { fontSize: 13, color: COLORS.textSecondary, marginLeft: 'auto' },
-  detailStops: {},
-  detailStop: { fontSize: 15, color: COLORS.textPrimary },
-  detailArrow: { fontSize: 12, color: COLORS.textSecondary, marginVertical: 2 },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    padding: 8,
+  modeChip: {
     backgroundColor: COLORS.bgSystem,
-    borderRadius: 8,
-    marginBottom: 6,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginRight: 8,
+    minWidth: 64,
+    alignItems: 'center',
   },
-  detailLabel: { fontSize: 14, color: COLORS.etaWarning },
-  detailValue: { fontSize: 14, color: COLORS.textPrimary },
+  modeText: { fontSize: 12, color: COLORS.textPrimary, fontWeight: '600' },
+  routeNum: { fontSize: 18, fontWeight: '700', color: COLORS.hkRed, width: 52 },
+  legInfo: { flex: 1 },
   legName: { fontSize: 15, color: COLORS.textPrimary },
-  noResult: { fontSize: 17, color: COLORS.textSecondary },
-  estimateNote: {
-    textAlign: 'center',
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    marginBottom: 16,
-  },
+  legTime: { fontSize: 13, color: COLORS.textSecondary, marginTop: 1 },
+  transferLeg: { paddingVertical: 6, alignItems: 'center' },
+  transferText: { fontSize: 13, color: COLORS.etaWarning, fontWeight: '600' },
   tapHint: {
     marginTop: 10,
     fontSize: 12,
     color: COLORS.textSecondary,
     textAlign: 'center',
+  },
+  noResult: { fontSize: 17, color: COLORS.textSecondary },
+  mapWrap: { marginHorizontal: 16, marginTop: 8, marginBottom: 16 },
+  estimateNote: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginBottom: 16,
   },
 });

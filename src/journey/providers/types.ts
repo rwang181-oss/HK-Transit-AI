@@ -33,6 +33,8 @@ export interface ETA {
   bound: 'O' | 'I';
   stopId: string;
   eta: string; // ISO timestamp
+  dest_en?: string;
+  dest_tc?: string;
   provider: ProviderId;
 }
 
