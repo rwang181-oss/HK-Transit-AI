@@ -36,10 +36,12 @@ export default function NearbyScreen() {
     requestPermission,
     getPosition,
   } = useLocationStore();
-  const { stops, loadRouteData, getRoutesForStop } = useRouteStore();
+  const { stops, loadRouteData, loadAllRouteStops, getRoutesForStop } =
+    useRouteStore();
 
   useEffect(() => {
     loadRouteData();
+    loadAllRouteStops(); // heavy: full route-stop list for reverse index
   }, []);
 
   useEffect(() => {
