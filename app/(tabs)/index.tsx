@@ -6,7 +6,7 @@ import { useFavoriteStore } from '@/src/stores/favoriteStore';
 import { useETAStore } from '@/src/stores/etaStore';
 import { useRouteStore } from '@/src/stores/routeStore';
 import { RouteCard } from '@/src/components/RouteCard';
-import { COLORS } from '@/src/utils/constants';
+import { COLORS, ETA_REFRESH_INTERVAL } from '@/src/utils/constants';
 
 export default function HomeScreen() {
   const { t } = useTranslation();
@@ -25,16 +25,23 @@ export default function HomeScreen() {
   }, []);
 
   const loadAllETAs = useCallback(async () => {
-    for (const fav of favoriteRoutes) {
-      await fetchETAForStop(fav.stopId, fav.route, fav.serviceType);
-    }
+    // Parallel: serial requests across many favorites cause 1s+ delays
+    await Promise.all(
+      favoriteRoutes.map((fav) =>
+        fetchETAForStop(fav.stopId, fav.route, fav.serviceType)
+      )
+    );
   }, [favoriteRoutes, fetchETAForStop]);
 
   useEffect(() => {
     if (favoriteRoutes.length > 0) {
       loadAllETAs();
-      const first = favoriteRoutes[0];
-      startAutoRefresh(first.stopId, first.route, first.serviceType);
+      // Auto-refresh ALL favorites every 30s, not just the first
+      const timer = setInterval(loadAllETAs, ETA_REFRESH_INTERVAL);
+      return () => {
+        clearInterval(timer);
+        stopAutoRefresh();
+      };
     }
     return () => stopAutoRefresh();
   }, [favoriteRoutes.length]);

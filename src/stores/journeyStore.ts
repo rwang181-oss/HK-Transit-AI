@@ -9,6 +9,13 @@ import type { Itinerary } from '@/src/journey/planner/planner';
 import { planJourney } from '@/src/journey/planner/planner';
 import * as kmbAPI from '@/src/services/kmbAPI';
 
+/** Strip whitespace/punctuation for fuzzy matching. */
+function normalizeSearch(s: string): string {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9一-鿿]/g, '');
+}
+
 interface JourneyState {
   status: 'idle' | 'loading' | 'ready' | 'error';
   error: string | null;
@@ -93,17 +100,33 @@ export const useJourneyStore = create<JourneyState>((set, get) => ({
   },
 
   searchStops: (query) => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
+    const q = normalizeSearch(query);
+    if (!q || q.length === 0) return [];
     const hubs = get().hubs;
-    return hubs
-      .filter((h) => {
-        const en = h.name_en.toLowerCase();
-        const tc = h.name_tc.toLowerCase();
-        // Match english name prefix or chinese contains
-        return en.startsWith(q) || tc.includes(q) || en.includes(q);
-      })
-      .slice(0, 15);
+    const results: { hub: StopHub; score: number }[] = [];
+    for (const h of hubs) {
+      const en = normalizeSearch(h.name_en);
+      const tc = normalizeSearch(h.name_tc);
+      if (!en && !tc) continue;
+      // Bidirectional substring: station contains query (typing "旺角"),
+      // or query contains station (typing "旺角道XX號" → 旺角).
+      const inEn = en.includes(q);
+      const inTc = tc.includes(q);
+      const qInEn = q.includes(en);
+      const qInTc = q.includes(tc);
+      if (inEn || inTc || qInEn || qInTc) {
+        // Score: prefer station-name prefix/short over long-address hit
+        let score = 0;
+        if (inEn || inTc) score += 2;
+        if (en.startsWith(q) || tc.startsWith(q)) score += 3;
+        if (qInEn || qInTc) score += 1;
+        results.push({ hub: h, score });
+      }
+    }
+    return results
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 15)
+      .map((r) => r.hub);
   },
 
   plan: (fromHubId, toHubId) => {

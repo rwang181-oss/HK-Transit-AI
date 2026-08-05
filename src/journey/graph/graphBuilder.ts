@@ -88,18 +88,39 @@ export function buildGraph(
     }
   }
 
-  // 2. Transfer edges between hubs within walking distance
-  const hubList = [...hubs];
-  for (let i = 0; i < hubList.length; i++) {
-    for (let j = i + 1; j < hubList.length; j++) {
-      const a = hubList[i];
-      const b = hubList[j];
-      if (!a.lat || !b.lat) continue;
-      const meters = haversineMeters(a.lat, a.lng, b.lat, b.lng);
-      if (meters > 0 && meters <= TRANSFER_DISTANCE_M) {
-        const w = estimateWalkMinutes(meters);
-        addEdge({ from: a.id, to: b.id, weight: w, provider: 'KMB' as ProviderId, route: '', bound: 'O', kind: 'transfer' });
-        addEdge({ from: b.id, to: a.id, weight: w, provider: 'KMB' as ProviderId, route: '', bound: 'O', kind: 'transfer' });
+  // 2. Transfer edges between hubs within walking distance.
+  //    Spatial grid index: compare only hubs in the same or adjacent
+  //    cells (~0.005° ≈ 550m) instead of O(n²) over all hubs.
+  const GRID = 0.005;
+  const grid = new Map<string, StopHub[]>();
+  for (const h of hubs) {
+    if (!h.lat) continue;
+    const key = `${Math.floor(h.lng / GRID)},${Math.floor(h.lat / GRID)}`;
+    if (!grid.has(key)) grid.set(key, []);
+    grid.get(key)!.push(h);
+  }
+  const processedPairs = new Set<string>();
+  for (const h of hubs) {
+    if (!h.lat) continue;
+    const gx = Math.floor(h.lng / GRID);
+    const gy = Math.floor(h.lat / GRID);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        const cell = grid.get(`${gx + dx},${gy + dy}`);
+        if (!cell) continue;
+        for (const other of cell) {
+          if (other === h) continue;
+          const pairKey =
+            h.id < other.id ? `${h.id}|${other.id}` : `${other.id}|${h.id}`;
+          if (processedPairs.has(pairKey)) continue;
+          processedPairs.add(pairKey);
+          const meters = haversineMeters(h.lat, h.lng, other.lat, other.lng);
+          if (meters > 0 && meters <= TRANSFER_DISTANCE_M) {
+            const w = estimateWalkMinutes(meters);
+            addEdge({ from: h.id, to: other.id, weight: w, provider: 'KMB' as ProviderId, route: '', bound: 'O', kind: 'transfer' });
+            addEdge({ from: other.id, to: h.id, weight: w, provider: 'KMB' as ProviderId, route: '', bound: 'O', kind: 'transfer' });
+          }
+        }
       }
     }
   }

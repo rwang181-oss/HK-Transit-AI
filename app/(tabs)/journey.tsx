@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -26,17 +26,32 @@ export default function JourneyScreen() {
   const [fromHub, setFromHub] = useState<StopHub | null>(null);
   const [toHub, setToHub] = useState<StopHub | null>(null);
   const [activeField, setActiveField] = useState<Target | null>(null);
+  const [debouncedFrom, setDebouncedFrom] = useState('');
+  const [debouncedTo, setDebouncedTo] = useState('');
 
   useEffect(() => {
     loadData();
   }, []);
 
-  const results =
-    activeField === 'from'
-      ? searchStops(fromQuery)
-      : activeField === 'to'
-        ? searchStops(toQuery)
-        : [];
+  // Debounce searches so typing doesn't scan 8k hubs every keystroke
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedFrom(fromQuery), 250);
+    return () => clearTimeout(id);
+  }, [fromQuery]);
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedTo(toQuery), 250);
+    return () => clearTimeout(id);
+  }, [toQuery]);
+
+  const results = useMemo(
+    () =>
+      activeField === 'from'
+        ? searchStops(debouncedFrom)
+        : activeField === 'to'
+          ? searchStops(debouncedTo)
+          : [],
+    [activeField, debouncedFrom, debouncedTo, searchStops]
+  );
 
   const handlePick = (hub: StopHub) => {
     if (activeField === 'from') {
@@ -131,24 +146,33 @@ export default function JourneyScreen() {
       </View>
 
       {/* Search suggestions */}
-      {activeField && results.length > 0 && (
-        <ScrollView style={styles.results} keyboardShouldPersistTaps="handled">
-          {results.map((hub) => (
-            <Pressable
-              key={hub.id}
-              style={styles.resultItem}
-              onPress={() => handlePick(hub)}
-            >
-              <Text style={styles.resultName}>
-                {isEN ? hub.name_en : hub.name_tc}
-              </Text>
-              <Text style={styles.resultMeta}>
-                {hub.members
-                  .map((m) => t(`providers.${m.provider}`))
-                  .join(' · ')}
-              </Text>
-            </Pressable>
-          ))}
+      {activeField && (
+        <ScrollView
+          style={styles.results}
+          keyboardShouldPersistTaps="handled"
+        >
+          {results.length === 0 ? (
+            <Text style={styles.noResultHint}>
+              {t('journey.noResult')}
+            </Text>
+          ) : (
+            results.map((hub) => (
+              <Pressable
+                key={hub.id}
+                style={styles.resultItem}
+                onPress={() => handlePick(hub)}
+              >
+                <Text style={styles.resultName}>
+                  {isEN ? hub.name_en : hub.name_tc}
+                </Text>
+                <Text style={styles.resultMeta}>
+                  {hub.members
+                    .map((m) => t(`providers.${m.provider}`))
+                    .join(' · ')}
+                </Text>
+              </Pressable>
+            ))
+          )}
         </ScrollView>
       )}
 
@@ -233,6 +257,12 @@ const styles = StyleSheet.create({
   },
   resultName: { fontSize: 16, color: COLORS.textPrimary },
   resultMeta: { fontSize: 13, color: COLORS.textSecondary, marginTop: 2 },
+  noResultHint: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    padding: 16,
+  },
   estimateNote: {
     textAlign: 'center',
     fontSize: 12,

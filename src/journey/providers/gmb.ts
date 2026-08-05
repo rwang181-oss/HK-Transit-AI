@@ -17,6 +17,14 @@ interface GmbSnapshot {
 
 const data = gmbData as unknown as GmbSnapshot;
 
+// Pre-build route+bound → links index for O(1) lookups
+const routeStopIndex = new Map<string, RouteStopLink[]>();
+for (const rs of data.routeStops) {
+  const key = `${rs.route}:${rs.bound}`;
+  if (!routeStopIndex.has(key)) routeStopIndex.set(key, []);
+  routeStopIndex.get(key)!.push(rs);
+}
+
 async function etaJson(url: string): Promise<any> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`GMB ETA ${res.status} ${url}`);
@@ -38,9 +46,10 @@ export const gmbProvider: TransitProvider = {
     route: string,
     bound: 'O' | 'I'
   ): Promise<RouteStopLink[]> {
-    return data.routeStops
-      .filter((rs) => rs.route === route && rs.bound === bound)
-      .map((rs) => ({ ...rs, provider: 'GMB' as const }));
+    return (routeStopIndex.get(`${route}:${bound}`) || []).map((rs) => ({
+      ...rs,
+      provider: 'GMB' as const,
+    }));
   },
 
   async fetchETA(stopId: string, route: string): Promise<ETA[]> {
