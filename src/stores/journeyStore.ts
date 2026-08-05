@@ -233,162 +233,187 @@ export const useJourneyStore = create<JourneyState>((set, get) => ({
       get().hubs,
       from.lat,
       from.lng,
-      6,
+      8,
       MAX_WALK_TO_STATION_M
     );
     const alightHubs = nearestHubs(
       get().hubs,
       to.lat,
       to.lng,
-      6,
+      8,
       MAX_WALK_FROM_STATION_M
     );
-    const options: JourneyOption[] = [];
 
-    // Index: which routes serve each hub (from ride edges)
+    // Index: routes per hub, and ride edges per route
     const hubRoutes = new Map<string, string[]>();
+    const routeEdges = new Map<string, Map<string, import('@/src/journey/graph/graphBuilder').Edge>>();
     for (const e of graph.edges) {
       if (e.kind !== 'ride') continue;
       const key = `${e.provider}:${e.route}:${e.bound}`;
       if (!hubRoutes.has(e.from)) hubRoutes.set(e.from, []);
       if (!hubRoutes.get(e.from)!.includes(key)) hubRoutes.get(e.from)!.push(key);
+      if (!routeEdges.has(key)) routeEdges.set(key, new Map());
+      if (!routeEdges.get(key)!.has(e.from)) routeEdges.get(key)!.set(e.from, e);
     }
 
-    const seen = new Set<string>(); // dedupe identical combos
-
-    async function addOption(
-      bh: StopHub,
-      ah: StopHub,
-      rideMinutes: number,
-      routeKey: string
-    ) {
-      const [provider, route, bound] = routeKey.split(':');
-      const comboKey = `${bh.id}|${ah.id}|${routeKey}`;
-      if (seen.has(comboKey)) return;
-      seen.add(comboKey);
-
-      const walkToM = haversineMeters(from.lat, from.lng, bh.lat, bh.lng);
-      const walkFromM = haversineMeters(ah.lat, ah.lng, to.lat, to.lng);
-      const walkToStationMin = estimateWalkMinutes(walkToM);
-      const walkFromStationMin = estimateWalkMinutes(walkFromM);
-
-      const member = bh.members.find((m) => m.provider === provider);
-      const boardStopId = member?.stopId || '';
-      const nextBusMin = await fetchNextBusMin(
-        { provider: provider as any, route, bound: bound as any } as any,
-        bh
-      );
-      const catchable = walkToStationMin <= nextBusMin;
-      const totalMinutes = Math.round(
-        walkToStationMin + nextBusMin + rideMinutes + walkFromStationMin
-      );
-
-      options.push({
-        id: `opt-${options.length}`,
-        totalMinutes,
-        walkToStationMin,
-        walkToStationMeters: Math.round(walkToM),
-        walkFromStationMin,
-        walkFromStationMeters: Math.round(walkFromM),
-        waitMin: nextBusMin,
-        catchable,
-        nextBusMin,
-        itinerary: {
-          totalMinutes: Math.round(rideMinutes),
-          transfers: 0,
-          isDirect: true,
-          legs: [
-            {
-              provider: provider as any,
-              route,
-              bound: bound as any,
-              fromHubId: bh.id,
-              toHubId: ah.id,
-              fromName: bh.name_en,
-              toName: ah.name_en,
-              minutes: rideMinutes,
-              kind: 'ride',
-            },
-          ],
-        },
-        boardStopId,
-        boardRoute: route,
-        boardBound: bound as 'O' | 'I',
-        boardProvider: provider,
-        boardHub: bh,
-        alightHub: ah,
-      });
+    interface RawCandidate {
+      bh: StopHub;
+      ah: StopHub;
+      rideMinutes: number;
+      routeKey: string;
+      walkToMin: number;
+      walkFromMin: number;
+      isDirect: boolean;
+      itin?: Itinerary;
     }
+    const raw: RawCandidate[] = [];
+    const seenCombos = new Set<string>();
 
-    // 1. DIRECT routes first — any route serving a board stop AND an
-    //    alight stop in the correct direction is a real direct option.
-    const boardRouteKeys = new Set<string>();
+    // 1. DIRECT — walk EVERY stop of every route serving a boarding hub.
+    //    Any stop within walking distance of the destination is a valid
+    //    alight point (e.g. 203E stop 蒲蘅里 is 281m from 正康樓).
     for (const bh of boardHubs) {
-      for (const k of hubRoutes.get(bh.id) || []) boardRouteKeys.add(k);
-    }
-    for (const ah of alightHubs) {
-      const alightKeys = new Set(hubRoutes.get(ah.id) || []);
-      for (const key of boardRouteKeys) {
-        if (!alightKeys.has(key)) continue;
-        for (const bh of boardHubs) {
-          if (!(hubRoutes.get(bh.id) || []).includes(key)) continue;
-          const rideMin = traceRoute(graph.edges, key, bh.id, ah.id);
-          if (rideMin !== null) {
-            await addOption(bh, ah, rideMin, key);
+      for (const key of hubRoutes.get(bh.id) || []) {
+        const edges = routeEdges.get(key)!;
+        let cur = bh.id;
+        let cum = 0;
+        const visited = new Set<string>();
+        while (edges.has(cur) && !visited.has(cur)) {
+          visited.add(cur);
+          const e = edges.get(cur)!;
+          cum += e.weight;
+          cur = e.to;
+          const ah = graph.hubById.get(cur);
+          if (!ah || !ah.lat) continue;
+          const dTo = haversineMeters(ah.lat, ah.lng, to.lat, to.lng);
+          if (dTo <= MAX_WALK_FROM_STATION_M) {
+            const combo = `${bh.id}|${ah.id}|${key}`;
+            if (!seenCombos.has(combo)) {
+              seenCombos.add(combo);
+              raw.push({
+                bh,
+                ah,
+                rideMinutes: cum,
+                routeKey: key,
+                walkToMin: estimateWalkMinutes(
+                  haversineMeters(from.lat, from.lng, bh.lat, bh.lng)
+                ),
+                walkFromMin: estimateWalkMinutes(dTo),
+                isDirect: true,
+              });
+            }
           }
         }
       }
     }
 
-    // 2. TRANSFER fallback — Dijkstra for combos not already covered
+    // 2. TRANSFER — Dijkstra from each boarding hub to nearest alight hubs
     for (const bh of boardHubs) {
       for (const ah of alightHubs) {
         if (bh.id === ah.id) continue;
-        const comboKey = `${bh.id}|${ah.id}`;
-        // Skip if a direct option already exists for this pair
-        if ([...seen].some((s) => s.startsWith(comboKey))) continue;
         const itin = planJourney(graph, bh.id, ah.id);
         if (!itin || itin.legs.length === 0) continue;
         const firstRide = itin.legs.find((l) => l.kind === 'ride');
         if (!firstRide) continue;
-
-        const walkToM = haversineMeters(from.lat, from.lng, bh.lat, bh.lng);
-        const walkFromM = haversineMeters(ah.lat, ah.lng, to.lat, to.lng);
-        const walkToStationMin = estimateWalkMinutes(walkToM);
-        const walkFromStationMin = estimateWalkMinutes(walkFromM);
-        const nextBusMin = await fetchNextBusMin(firstRide, bh);
-        const catchable = walkToStationMin <= nextBusMin;
-        const totalMinutes = Math.round(
-          walkToStationMin + nextBusMin + itin.totalMinutes + walkFromStationMin
-        );
-        const member = bh.members.find(
-          (m) => m.provider === firstRide.provider
-        );
-
-        options.push({
-          id: `opt-${options.length}`,
-          totalMinutes,
-          walkToStationMin,
-          walkToStationMeters: Math.round(walkToM),
-          walkFromStationMin,
-          walkFromStationMeters: Math.round(walkFromM),
-          waitMin: nextBusMin,
-          catchable,
-          nextBusMin,
-          itinerary: itin,
-          boardStopId: member?.stopId || '',
-          boardRoute: firstRide.route,
-          boardBound: firstRide.bound,
-          boardProvider: firstRide.provider,
-          boardHub: bh,
-          alightHub: ah,
+        const combo = `${bh.id}|${ah.id}`;
+        const hasDirect = [...seenCombos].some((s) => s.startsWith(`${combo}|`));
+        if (hasDirect) continue;
+        raw.push({
+          bh,
+          ah,
+          rideMinutes: itin.totalMinutes,
+          routeKey: `${firstRide.provider}:${firstRide.route}:${firstRide.bound}`,
+          walkToMin: estimateWalkMinutes(
+            haversineMeters(from.lat, from.lng, bh.lat, bh.lng)
+          ),
+          walkFromMin: estimateWalkMinutes(
+            haversineMeters(ah.lat, ah.lng, to.lat, to.lng)
+          ),
+          isDirect: false,
+          itin,
         });
-        seen.add(`${comboKey}|x`);
       }
     }
 
+    // Dedupe identical (board, alight) with the fastest, then rank
+    const dedup = new Map<string, RawCandidate>();
+    for (const r of raw) {
+      const k = `${r.bh.id}|${r.ah.id}|${r.isDirect ? r.routeKey : 'x'}`;
+      const rough = r.walkToMin + r.rideMinutes + r.walkFromMin;
+      const prev = dedup.get(k);
+      if (!prev || rough < prev.walkToMin + prev.rideMinutes + prev.walkFromMin) {
+        dedup.set(k, r);
+      }
+    }
+    const sorted = [...dedup.values()]
+      .sort(
+        (a, b) =>
+          a.walkToMin +
+          a.rideMinutes +
+          a.walkFromMin -
+          (b.walkToMin + b.rideMinutes + b.walkFromMin)
+      )
+      .slice(0, 12);
+
+    // Build options with live ETA
+    const options: JourneyOption[] = [];
+    for (const r of sorted) {
+      const [provider, route, bound] = r.routeKey.split(':');
+      const member = r.bh.members.find((m) => m.provider === provider);
+      const nextBusMin = await fetchNextBusMin(
+        { provider, route, bound } as any,
+        r.bh
+      );
+      const catchable = r.walkToMin <= nextBusMin;
+      const itin: Itinerary = r.isDirect
+        ? {
+            totalMinutes: Math.round(r.rideMinutes),
+            transfers: 0,
+            isDirect: true,
+            legs: [
+              {
+                provider: provider as any,
+                route,
+                bound: bound as any,
+                fromHubId: r.bh.id,
+                toHubId: r.ah.id,
+                fromName: r.bh.name_en,
+                toName: r.ah.name_en,
+                minutes: r.rideMinutes,
+                kind: 'ride',
+              },
+            ],
+          }
+        : r.itin!;
+
+      options.push({
+        id: `opt-${options.length}`,
+        totalMinutes: Math.round(
+          r.walkToMin + nextBusMin + r.rideMinutes + r.walkFromMin
+        ),
+        walkToStationMin: r.walkToMin,
+        walkToStationMeters: Math.round(
+          haversineMeters(from.lat, from.lng, r.bh.lat, r.bh.lng)
+        ),
+        walkFromStationMin: r.walkFromMin,
+        walkFromStationMeters: Math.round(
+          haversineMeters(r.ah.lat, r.ah.lng, to.lat, to.lng)
+        ),
+        waitMin: nextBusMin,
+        catchable,
+        nextBusMin,
+        itinerary: itin,
+        boardStopId: member?.stopId || '',
+        boardRoute: route,
+        boardBound: bound as 'O' | 'I',
+        boardProvider: provider,
+        boardHub: r.bh,
+        alightHub: r.ah,
+      });
+    }
+
     options.sort((a, b) => a.totalMinutes - b.totalMinutes);
-    return options.slice(0, 12);
+    return options;
   },
 
   getHubById: (id) => get().hubs.find((h) => h.id === id),
