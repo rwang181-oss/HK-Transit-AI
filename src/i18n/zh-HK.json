@@ -40,6 +40,26 @@
     "emptyRoutes": "尚未收藏路線",
     "emptyStops": "尚未收藏車站"
   },
+  "journey": {
+    "title": "行程",
+    "from": "出發",
+    "to": "目的地",
+    "searchPlaceholder": "搜尋車站...",
+    "swap": "交換",
+    "plan": "規劃路線",
+    "fastest": "最快",
+    "direct": "直達",
+    "transfer": "換乘 {{count}} 次",
+    "noResult": "沒有找到路線",
+    "estimates": "時間為估算值",
+    "loading": "正在建立路線圖..."
+  },
+  "providers": {
+    "KMB": "九巴",
+    "CTB": "城巴",
+    "GMB": "綠色小巴",
+    "MTR": "港鐵"
+  },
   "common": {
     "retry": "重試",
     "cancel": "取消",

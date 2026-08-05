@@ -40,6 +40,26 @@
     "emptyRoutes": "No favorite routes yet",
     "emptyStops": "No favorite stops yet"
   },
+  "journey": {
+    "title": "Journey",
+    "from": "From",
+    "to": "To",
+    "searchPlaceholder": "Search a station...",
+    "swap": "Swap",
+    "plan": "Plan Route",
+    "fastest": "Fastest",
+    "direct": "Direct",
+    "transfer": "{{count}} transfer",
+    "noResult": "No route found",
+    "estimates": "Times are estimates",
+    "loading": "Building route map..."
+  },
+  "providers": {
+    "KMB": "KMB",
+    "CTB": "Citybus",
+    "GMB": "Green Minibus",
+    "MTR": "MTR"
+  },
   "common": {
     "retry": "Retry",
     "cancel": "Cancel",
