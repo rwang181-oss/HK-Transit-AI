@@ -41,4 +41,14 @@ if (!fs.existsSync(nojekyll)) {
   console.log('Created .nojekyll');
 }
 
+// 3. SPA fallback: copy index.html → 404.html so GitHub Pages serves
+//    the app for unknown deep links (e.g. /HK-Transit-AI/journey/result)
+//    instead of a 404.
+const indexHtml = path.join(dist, 'index.html');
+const notFound = path.join(dist, '404.html');
+if (fs.existsSync(indexHtml)) {
+  fs.copyFileSync(indexHtml, notFound);
+  console.log('Created 404.html (SPA fallback)');
+}
+
 console.log('Post-build complete.');
