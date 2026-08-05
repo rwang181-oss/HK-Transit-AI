@@ -1,0 +1,48 @@
+{
+  "home": {
+    "title": "HK Transit",
+    "emptyTitle": "Welcome to HK Transit",
+    "emptySubtitle": "Add your favorite routes to get started",
+    "goToSearch": "Search Routes",
+    "loading": "Loading...",
+    "error": "Unable to load ETA data"
+  },
+  "search": {
+    "title": "Search",
+    "placeholder": "Enter route number",
+    "noResults": "No routes found",
+    "direction": "Direction",
+    "outbound": "Outbound",
+    "inbound": "Inbound"
+  },
+  "eta": {
+    "title": "Route {{route}}",
+    "nextBus": "Next bus",
+    "min": "min",
+    "arriving": "Arriving",
+    "noETA": "No ETA data available",
+    "refreshingIn": "Refreshing in {{seconds}}s"
+  },
+  "nearby": {
+    "title": "Nearby Stops",
+    "permissionDenied": "Location permission is needed to show nearby stops",
+    "grantPermission": "Grant Permission",
+    "loading": "Finding nearby stops...",
+    "noStops": "No stops found nearby",
+    "meter": "m",
+    "routes": "Routes"
+  },
+  "favorites": {
+    "title": "Favorites",
+    "routes": "Favorite Routes",
+    "stops": "Favorite Stops",
+    "emptyRoutes": "No favorite routes yet",
+    "emptyStops": "No favorite stops yet"
+  },
+  "common": {
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete"
+  }
+}

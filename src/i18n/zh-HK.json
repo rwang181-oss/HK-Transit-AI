@@ -1,0 +1,48 @@
+{
+  "home": {
+    "title": "HK Transit",
+    "emptyTitle": "歡迎使用 HK Transit",
+    "emptySubtitle": "添加常用路線開始使用",
+    "goToSearch": "搜尋路線",
+    "loading": "載入中...",
+    "error": "無法載入到站時間"
+  },
+  "search": {
+    "title": "搜尋",
+    "placeholder": "輸入路線號碼",
+    "noResults": "找不到相關路線",
+    "direction": "方向",
+    "outbound": "往",
+    "inbound": "往"
+  },
+  "eta": {
+    "title": "路線 {{route}}",
+    "nextBus": "下一班",
+    "min": "分鐘",
+    "arriving": "即將到站",
+    "noETA": "暫無到站時間",
+    "refreshingIn": "{{seconds}} 秒後更新"
+  },
+  "nearby": {
+    "title": "附近車站",
+    "permissionDenied": "需要定位權限才能顯示附近車站",
+    "grantPermission": "允許定位",
+    "loading": "搜尋附近車站...",
+    "noStops": "附近沒有車站",
+    "meter": "米",
+    "routes": "路線"
+  },
+  "favorites": {
+    "title": "收藏",
+    "routes": "收藏路線",
+    "stops": "收藏車站",
+    "emptyRoutes": "尚未收藏路線",
+    "emptyStops": "尚未收藏車站"
+  },
+  "common": {
+    "retry": "重試",
+    "cancel": "取消",
+    "save": "儲存",
+    "delete": "刪除"
+  }
+}
