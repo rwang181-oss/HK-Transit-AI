@@ -6,14 +6,16 @@ import { COLORS } from '@/src/utils/constants';
 
 export default function TabLayout() {
   const { t, i18n } = useTranslation();
+  const lang = i18n.language;
 
   const toggleLang = () => {
-    const next = i18n.language === 'en' ? 'zh-HK' : 'en';
+    const next = lang === 'en' ? 'zh-HK' : 'en';
     changeLanguage(next);
   };
 
   return (
     <Tabs
+      key={lang} // force full re-render on language change
       screenOptions={{
         tabBarActiveTintColor: COLORS.hkRed,
         tabBarInactiveTintColor: COLORS.textSecondary,
@@ -33,7 +35,7 @@ export default function TabLayout() {
             style={{ paddingHorizontal: 16 }}
           >
             <Text style={{ fontSize: 16, color: COLORS.hkRed }}>
-              {i18n.language === 'en' ? '中文' : 'EN'}
+              {lang === 'en' ? '中文' : 'EN'}
             </Text>
           </Pressable>
         ),
@@ -41,19 +43,19 @@ export default function TabLayout() {
     >
       <Tabs.Screen
         name="index"
-        options={{ title: t('home.title'), tabBarLabel: 'Home' }}
+        options={{ title: t('home.title'), tabBarLabel: t('home.title') }}
       />
       <Tabs.Screen
         name="search"
-        options={{ title: t('search.title'), tabBarLabel: 'Search' }}
+        options={{ title: t('search.title'), tabBarLabel: t('search.title') }}
       />
       <Tabs.Screen
         name="nearby"
-        options={{ title: t('nearby.title'), tabBarLabel: 'Nearby' }}
+        options={{ title: t('nearby.title'), tabBarLabel: t('nearby.title') }}
       />
       <Tabs.Screen
         name="favorites"
-        options={{ title: t('favorites.title'), tabBarLabel: 'Favorites' }}
+        options={{ title: t('favorites.title'), tabBarLabel: t('favorites.title') }}
       />
     </Tabs>
   );

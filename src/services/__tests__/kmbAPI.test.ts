@@ -73,7 +73,7 @@ describe('kmbAPI', () => {
       const result = await fetchRouteStops('1A', 'O');
       expect(result).toEqual(mockRouteStops);
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://data.etabus.gov.hk/v1/transport/kmb/route-stop/1A/O/1'
+        'https://data.etabus.gov.hk/v1/transport/kmb/route-stop/1A/outbound/1'
       );
     });
   });

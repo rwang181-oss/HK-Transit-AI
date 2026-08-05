@@ -71,8 +71,10 @@ export async function fetchRouteStops(
   bound: 'O' | 'I',
   serviceType: number = 1
 ): Promise<RouteStop[]> {
+  // API expects full direction words in the URL, not O/I abbreviations
+  const dir = bound === 'O' ? 'outbound' : 'inbound';
   const data = await apiGet<{ data: RouteStop[] }>(
-    `/route-stop/${route}/${bound}/${serviceType}`
+    `/route-stop/${route}/${dir}/${serviceType}`
   );
   return data.data;
 }
