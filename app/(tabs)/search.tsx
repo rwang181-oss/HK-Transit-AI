@@ -22,10 +22,23 @@ export default function SearchScreen() {
   const filteredRoutes = useMemo(() => {
     if (!query.trim()) return [];
     const q = query.trim().toUpperCase();
+    // Deduplicate by route number — API returns multiple entries per route
+    const seen = new Set<string>();
     return routes
-      .filter((r) => r.route.toUpperCase().includes(q))
+      .filter((r) => {
+        if (seen.has(r.route)) return false;
+        if (!r.route.toUpperCase().includes(q)) return false;
+        seen.add(r.route);
+        return true;
+      })
       .slice(0, 20);
   }, [routes, query]);
+
+  // Generate unique stable keys with route + index
+  const routeKeys = useMemo(
+    () => filteredRoutes.map((r, i) => `${r.route}-${i}`),
+    [filteredRoutes]
+  );
 
   const handleRoutePress = (route: string) => {
     router.push(`/eta/${route}`);
@@ -44,9 +57,9 @@ export default function SearchScreen() {
         </View>
       ) : (
         <ScrollView style={styles.list}>
-          {filteredRoutes.map((item) => (
+          {filteredRoutes.map((item, i) => (
             <Pressable
-              key={item.route}
+              key={routeKeys[i]}
               style={styles.routeItem}
               onPress={() => handleRoutePress(item.route)}
             >
