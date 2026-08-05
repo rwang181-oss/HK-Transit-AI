@@ -24,14 +24,53 @@ function nearestHubs(
   hubs: StopHub[],
   lat: number,
   lng: number,
-  limit: number
+  limit: number,
+  maxDist = Infinity
 ): StopHub[] {
   return hubs
     .filter((h) => h.lat && h.lng)
     .map((h) => ({ h, d: haversineMeters(lat, lng, h.lat, h.lng) }))
+    .filter((x) => x.d <= maxDist)
     .sort((a, b) => a.d - b.d)
     .slice(0, limit)
     .map((x) => x.h);
+}
+
+const MAX_WALK_TO_STATION_M = 1200;
+const MAX_WALK_FROM_STATION_M = 1200;
+
+/** Follow a single route's ride edges from boardHub to alightHub. */
+function traceRoute(
+  edges: import('@/src/journey/graph/graphBuilder').Edge[],
+  routeKey: string,
+  boardHubId: string,
+  alightHubId: string
+): number | null {
+  const [provider, route, bound] = routeKey.split(':');
+  const edgeOf = new Map<string, import('@/src/journey/graph/graphBuilder').Edge>();
+  for (const e of edges) {
+    if (
+      e.kind === 'ride' &&
+      e.provider === provider &&
+      e.route === route &&
+      e.bound === bound &&
+      !edgeOf.has(e.from)
+    ) {
+      edgeOf.set(e.from, e);
+    }
+  }
+  let cur = boardHubId;
+  let total = 0;
+  const seen = new Set<string>();
+  while (cur !== alightHubId) {
+    if (seen.has(cur)) return null;
+    seen.add(cur);
+    const next = edgeOf.get(cur);
+    if (!next) return null;
+    total += next.weight;
+    cur = next.to;
+  }
+  return total;
 }
 
 export interface JourneyOption {
@@ -190,39 +229,140 @@ export const useJourneyStore = create<JourneyState>((set, get) => ({
   plan: async (from, to) => {
     const graph = get().graph;
     if (!graph) return [];
-    const boardHubs = nearestHubs(get().hubs, from.lat, from.lng, 3);
-    const alightHubs = nearestHubs(get().hubs, to.lat, to.lng, 3);
+    const boardHubs = nearestHubs(
+      get().hubs,
+      from.lat,
+      from.lng,
+      6,
+      MAX_WALK_TO_STATION_M
+    );
+    const alightHubs = nearestHubs(
+      get().hubs,
+      to.lat,
+      to.lng,
+      6,
+      MAX_WALK_FROM_STATION_M
+    );
     const options: JourneyOption[] = [];
 
+    // Index: which routes serve each hub (from ride edges)
+    const hubRoutes = new Map<string, string[]>();
+    for (const e of graph.edges) {
+      if (e.kind !== 'ride') continue;
+      const key = `${e.provider}:${e.route}:${e.bound}`;
+      if (!hubRoutes.has(e.from)) hubRoutes.set(e.from, []);
+      if (!hubRoutes.get(e.from)!.includes(key)) hubRoutes.get(e.from)!.push(key);
+    }
+
+    const seen = new Set<string>(); // dedupe identical combos
+
+    async function addOption(
+      bh: StopHub,
+      ah: StopHub,
+      rideMinutes: number,
+      routeKey: string
+    ) {
+      const [provider, route, bound] = routeKey.split(':');
+      const comboKey = `${bh.id}|${ah.id}|${routeKey}`;
+      if (seen.has(comboKey)) return;
+      seen.add(comboKey);
+
+      const walkToM = haversineMeters(from.lat, from.lng, bh.lat, bh.lng);
+      const walkFromM = haversineMeters(ah.lat, ah.lng, to.lat, to.lng);
+      const walkToStationMin = estimateWalkMinutes(walkToM);
+      const walkFromStationMin = estimateWalkMinutes(walkFromM);
+
+      const member = bh.members.find((m) => m.provider === provider);
+      const boardStopId = member?.stopId || '';
+      const nextBusMin = await fetchNextBusMin(
+        { provider: provider as any, route, bound: bound as any } as any,
+        bh
+      );
+      const catchable = walkToStationMin <= nextBusMin;
+      const totalMinutes = Math.round(
+        walkToStationMin + nextBusMin + rideMinutes + walkFromStationMin
+      );
+
+      options.push({
+        id: `opt-${options.length}`,
+        totalMinutes,
+        walkToStationMin,
+        walkToStationMeters: Math.round(walkToM),
+        walkFromStationMin,
+        walkFromStationMeters: Math.round(walkFromM),
+        waitMin: nextBusMin,
+        catchable,
+        nextBusMin,
+        itinerary: {
+          totalMinutes: Math.round(rideMinutes),
+          transfers: 0,
+          isDirect: true,
+          legs: [
+            {
+              provider: provider as any,
+              route,
+              bound: bound as any,
+              fromHubId: bh.id,
+              toHubId: ah.id,
+              fromName: bh.name_en,
+              toName: ah.name_en,
+              minutes: rideMinutes,
+              kind: 'ride',
+            },
+          ],
+        },
+        boardStopId,
+        boardRoute: route,
+        boardBound: bound as 'O' | 'I',
+        boardProvider: provider,
+        boardHub: bh,
+        alightHub: ah,
+      });
+    }
+
+    // 1. DIRECT routes first — any route serving a board stop AND an
+    //    alight stop in the correct direction is a real direct option.
+    const boardRouteKeys = new Set<string>();
+    for (const bh of boardHubs) {
+      for (const k of hubRoutes.get(bh.id) || []) boardRouteKeys.add(k);
+    }
+    for (const ah of alightHubs) {
+      const alightKeys = new Set(hubRoutes.get(ah.id) || []);
+      for (const key of boardRouteKeys) {
+        if (!alightKeys.has(key)) continue;
+        for (const bh of boardHubs) {
+          if (!(hubRoutes.get(bh.id) || []).includes(key)) continue;
+          const rideMin = traceRoute(graph.edges, key, bh.id, ah.id);
+          if (rideMin !== null) {
+            await addOption(bh, ah, rideMin, key);
+          }
+        }
+      }
+    }
+
+    // 2. TRANSFER fallback — Dijkstra for combos not already covered
     for (const bh of boardHubs) {
       for (const ah of alightHubs) {
         if (bh.id === ah.id) continue;
+        const comboKey = `${bh.id}|${ah.id}`;
+        // Skip if a direct option already exists for this pair
+        if ([...seen].some((s) => s.startsWith(comboKey))) continue;
         const itin = planJourney(graph, bh.id, ah.id);
         if (!itin || itin.legs.length === 0) continue;
+        const firstRide = itin.legs.find((l) => l.kind === 'ride');
+        if (!firstRide) continue;
 
         const walkToM = haversineMeters(from.lat, from.lng, bh.lat, bh.lng);
         const walkFromM = haversineMeters(ah.lat, ah.lng, to.lat, to.lng);
         const walkToStationMin = estimateWalkMinutes(walkToM);
         const walkFromStationMin = estimateWalkMinutes(walkFromM);
-
-        const firstRide = itin.legs.find((l) => l.kind === 'ride');
-        let nextBusMin = 0;
-        let boardStopId = '';
-        let boardRoute = '';
-        let boardBound: 'O' | 'I' = 'O';
-        let boardProvider = '';
-        if (firstRide) {
-          boardRoute = firstRide.route;
-          boardBound = firstRide.bound;
-          boardProvider = firstRide.provider;
-          const member = bh.members.find((m) => m.provider === firstRide.provider);
-          if (member) boardStopId = member.stopId;
-          nextBusMin = await fetchNextBusMin(firstRide, bh);
-        }
-
+        const nextBusMin = await fetchNextBusMin(firstRide, bh);
         const catchable = walkToStationMin <= nextBusMin;
         const totalMinutes = Math.round(
           walkToStationMin + nextBusMin + itin.totalMinutes + walkFromStationMin
+        );
+        const member = bh.members.find(
+          (m) => m.provider === firstRide.provider
         );
 
         options.push({
@@ -236,18 +376,19 @@ export const useJourneyStore = create<JourneyState>((set, get) => ({
           catchable,
           nextBusMin,
           itinerary: itin,
-          boardStopId,
-          boardRoute,
-          boardBound,
-          boardProvider,
+          boardStopId: member?.stopId || '',
+          boardRoute: firstRide.route,
+          boardBound: firstRide.bound,
+          boardProvider: firstRide.provider,
           boardHub: bh,
           alightHub: ah,
         });
+        seen.add(`${comboKey}|x`);
       }
     }
 
     options.sort((a, b) => a.totalMinutes - b.totalMinutes);
-    return options.slice(0, 10);
+    return options.slice(0, 12);
   },
 
   getHubById: (id) => get().hubs.find((h) => h.id === id),

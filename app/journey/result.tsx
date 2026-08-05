@@ -6,6 +6,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Pressable,
+  Linking,
 } from 'react-native';
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
@@ -34,6 +35,7 @@ export default function JourneyResultScreen() {
   const [options, setOptions] = useState<JourneyOption[] | null>(null);
   const [expanded, setExpanded] = useState<number | null>(0);
   const [planning, setPlanning] = useState(false);
+  const [filter, setFilter] = useState<'all' | 'direct' | 'transfer'>('all');
 
   const fromPoint = {
     lat: parseFloat(params.fromLat || '0'),
@@ -72,6 +74,14 @@ export default function JourneyResultScreen() {
     );
   };
 
+  const openNavigation = (opt: JourneyOption) => {
+    // Walking navigation to the boarding stop via Google Maps
+    const dest = `${opt.boardHub.lat},${opt.boardHub.lng}`;
+    Linking.openURL(
+      `https://www.google.com/maps/dir/?api=1&destination=${dest}&travelmode=walking`
+    ).catch(() => {});
+  };
+
   if (status === 'loading' || (planning && !options)) {
     return (
       <View style={styles.center}>
@@ -81,7 +91,18 @@ export default function JourneyResultScreen() {
     );
   }
 
-  const list = options ?? [];
+  const allOptions = options ?? [];
+  const list = allOptions.filter((o) => {
+    if (filter === 'direct') return o.itinerary.isDirect;
+    if (filter === 'transfer') return !o.itinerary.isDirect;
+    return true;
+  });
+
+  const filterChips: { key: 'all' | 'direct' | 'transfer'; label: string }[] = [
+    { key: 'all', label: isEN ? 'All' : '全部' },
+    { key: 'direct', label: isEN ? 'Direct' : '直達' },
+    { key: 'transfer', label: isEN ? 'Transfer' : '換乘' },
+  ];
 
   return (
     <View style={styles.container}>
@@ -93,6 +114,31 @@ export default function JourneyResultScreen() {
           {fromPoint.name} → {toPoint.name}
         </Text>
       </View>
+
+      {/* Direct / Transfer filter */}
+      {allOptions.length > 0 && (
+        <View style={styles.filterBar}>
+          {filterChips.map((c) => (
+            <Pressable
+              key={c.key}
+              style={[
+                styles.filterChip,
+                filter === c.key && styles.filterChipActive,
+              ]}
+              onPress={() => setFilter(c.key)}
+            >
+              <Text
+                style={[
+                  styles.filterText,
+                  filter === c.key && styles.filterTextActive,
+                ]}
+              >
+                {c.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
 
       <ScrollView style={styles.list}>
         {list.length === 0 ? (
@@ -107,8 +153,10 @@ export default function JourneyResultScreen() {
                 key={opt.id}
                 style={[styles.card, idx === 0 && styles.cardFastest]}
               >
-                {/* Header */}
-                <Pressable onPress={() => setExpanded(expanded === idx ? null : idx)}>
+                {/* Header — tap toggles expand/collapse */}
+                <Pressable
+                  onPress={() => setExpanded(expanded === idx ? null : idx)}
+                >
                   <View style={styles.cardHeader}>
                     <Text style={styles.totalTime}>
                       {opt.totalMinutes} {t('eta.min')}
@@ -236,13 +284,29 @@ export default function JourneyResultScreen() {
                   </View>
                 )}
 
-                <Text style={styles.tapHint}>
-                  {expanded === idx
-                    ? '▲'
-                    : isEN
-                      ? 'Tap for details ▼'
-                      : '點開查看詳情 ▼'}
-                </Text>
+                {/* Action row: navigate + expand toggle */}
+                <View style={styles.actionRow}>
+                  <Pressable
+                    style={styles.navBtn}
+                    onPress={() => openNavigation(opt)}
+                  >
+                    <Text style={styles.navBtnText}>
+                      {isEN ? '🧭 Walk to station' : '🧭 前往車站'}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.toggleBtn}
+                    onPress={() => setExpanded(expanded === idx ? null : idx)}
+                  >
+                    <Text style={styles.toggleText}>
+                      {expanded === idx
+                        ? '▲'
+                        : isEN
+                          ? 'Details ▼'
+                          : '詳情 ▼'}
+                    </Text>
+                  </Pressable>
+                </View>
               </View>
             );
           })
@@ -358,12 +422,47 @@ const styles = StyleSheet.create({
   legTime: { fontSize: 13, color: COLORS.textSecondary, marginTop: 1 },
   transferLeg: { paddingVertical: 6, alignItems: 'center' },
   transferText: { fontSize: 13, color: COLORS.etaWarning, fontWeight: '600' },
-  tapHint: {
-    marginTop: 10,
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
+  filterBar: {
+    flexDirection: 'row',
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 12,
   },
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: COLORS.bgCard,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+  },
+  filterChipActive: {
+    backgroundColor: COLORS.hkRed,
+    borderColor: COLORS.hkRed,
+  },
+  filterText: { fontSize: 14, color: COLORS.textPrimary },
+  filterTextActive: { color: '#FFFFFF', fontWeight: '600' },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  navBtn: {
+    flex: 1,
+    backgroundColor: '#E8F8EF',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  navBtnText: { fontSize: 14, fontWeight: '600', color: '#1B873F' },
+  toggleBtn: {
+    backgroundColor: COLORS.bgSystem,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  toggleText: { fontSize: 14, fontWeight: '600', color: COLORS.textPrimary },
   noResult: { fontSize: 17, color: COLORS.textSecondary },
   mapWrap: { marginHorizontal: 16, marginTop: 8, marginBottom: 16 },
   estimateNote: {

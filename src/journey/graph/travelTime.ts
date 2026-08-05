@@ -1,10 +1,16 @@
 import type { ProviderId } from '@/src/journey/providers/types';
 
-const MODE_SPEED: Record<ProviderId, { kmh: number; dwell: number }> = {
-  KMB: { kmh: 22, dwell: 0.6 },
-  CTB: { kmh: 22, dwell: 0.6 },
-  GMB: { kmh: 28, dwell: 0.5 },
-  MTR: { kmh: 38, dwell: 1.0 },
+// Average in-vehicle speed + stop dwell + route circuity factor.
+// Circuity accounts for the fact that a route rarely runs straight
+// between two stops (real distances are longer than haversine).
+const MODE_SPEED: Record<
+  ProviderId,
+  { kmh: number; dwell: number; circuity: number }
+> = {
+  KMB: { kmh: 20, dwell: 0.6, circuity: 1.45 },
+  CTB: { kmh: 20, dwell: 0.6, circuity: 1.45 },
+  GMB: { kmh: 25, dwell: 0.5, circuity: 1.35 },
+  MTR: { kmh: 35, dwell: 1.0, circuity: 1.12 },
 };
 
 const WALK_SPEED_M_PER_MIN = 80; // ~4.8 km/h
@@ -35,8 +41,8 @@ export function estimateLegMinutes(
 ): number {
   const meters = haversineMeters(from.lat, from.lng, to.lat, to.lng);
   const km = meters / 1000;
-  const { kmh, dwell } = MODE_SPEED[provider];
-  return Math.max(1.0, (km / kmh) * 60 + dwell);
+  const { kmh, dwell, circuity } = MODE_SPEED[provider];
+  return Math.max(1.0, ((km * circuity) / kmh) * 60 + dwell);
 }
 
 /** Estimated walking time (minutes) for a transfer. */
