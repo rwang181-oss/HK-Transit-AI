@@ -15,11 +15,13 @@ export default function ETAScreen() {
     bound: initialBound,
     stopId: initialStopId,
     serviceType: initialST,
+    noToggle,
   } = useLocalSearchParams<{
     routeId: string;
     bound?: string;
     stopId?: string;
     serviceType?: string;
+    noToggle?: string;
   }>();
 
   const { t, i18n } = useTranslation();
@@ -37,7 +39,9 @@ export default function ETAScreen() {
   const serviceType = parseInt(initialST || '1', 10);
   const [stopList, setStopList] = useState<RouteStop[]>([]);
 
-  const route = routes.find((r) => r.route === routeId);
+  const route = routes.find(
+    (r) => r.route === routeId && r.bound === bound
+  );
   const destName = isEN ? route?.dest_en : route?.dest_tc;
 
   useEffect(() => {
@@ -105,9 +109,11 @@ export default function ETAScreen() {
         <Text style={styles.boundLabel}>
           {destName || routeId}
         </Text>
-        <Text style={styles.boundToggle} onPress={toggleBound}>
-          {bound === 'O' ? t('search.outbound') : t('search.inbound')} ⇄
-        </Text>
+        {noToggle !== '1' && (
+          <Text style={styles.boundToggle} onPress={toggleBound}>
+            {bound === 'O' ? t('search.outbound') : t('search.inbound')} ⇄
+          </Text>
+        )}
       </View>
       <ScrollView
         style={styles.list}

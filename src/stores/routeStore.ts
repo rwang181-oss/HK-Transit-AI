@@ -32,6 +32,8 @@ interface RouteState {
   ) => Promise<RouteStop[]>;
   getStopById: (stopId: string) => Stop | undefined;
   getRoutesForStop: (stopId: string) => RouteInfo[];
+  searchQuery: string;
+  setSearchQuery: (q: string) => void;
 }
 
 export const useRouteStore = create<RouteState>((set, get) => ({
@@ -104,4 +106,7 @@ export const useRouteStore = create<RouteState>((set, get) => ({
   getRoutesForStop: (stopId) => {
     return get().stopToRoutes[stopId] || [];
   },
+
+  searchQuery: '',
+  setSearchQuery: (q) => set({ searchQuery: q }),
 }));

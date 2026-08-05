@@ -4,6 +4,7 @@ import { API_BASE_URL } from '@/src/utils/constants';
 
 export interface Route {
   route: string;
+  bound: 'O' | 'I';
   orig_en: string;
   orig_tc: string;
   dest_en: string;
