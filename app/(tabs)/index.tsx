@@ -1,5 +1,5 @@
 import { useEffect, useCallback } from 'react';
-import { View, Text, FlatList, StyleSheet, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useFavoriteStore } from '@/src/stores/favoriteStore';
@@ -69,23 +69,8 @@ export default function HomeScreen() {
   }
 
   return (
-    <FlatList
-      data={favoriteRoutes}
-      keyExtractor={(item) =>
-        `${item.route}_${item.bound}_${item.stopId}`
-      }
-      renderItem={({ item }) => {
-        const key = `${item.stopId}_${item.route}_${item.serviceType}`;
-        const etas = etaCache[key] || [];
-        return (
-          <RouteCard
-            favorite={item}
-            etas={etas}
-            onPress={() => handleRoutePress(item)}
-          />
-        );
-      }}
-      contentContainerStyle={styles.list}
+    <ScrollView
+      style={styles.list}
       refreshControl={
         <RefreshControl
           refreshing={loading}
@@ -93,7 +78,20 @@ export default function HomeScreen() {
           tintColor={COLORS.hkRed}
         />
       }
-    />
+    >
+      {favoriteRoutes.map((item) => {
+        const key = `${item.stopId}_${item.route}_${item.serviceType}`;
+        const etas = etaCache[key] || [];
+        return (
+          <RouteCard
+            key={`${item.route}_${item.bound}_${item.stopId}`}
+            favorite={item}
+            etas={etas}
+            onPress={() => handleRoutePress(item)}
+          />
+        );
+      })}
+    </ScrollView>
   );
 }
 
@@ -119,5 +117,5 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   linkText: { fontSize: 17, color: COLORS.hkRed, fontWeight: '600' },
-  list: { backgroundColor: COLORS.bgSystem, paddingVertical: 12 },
+  list: { flex: 1, backgroundColor: COLORS.bgSystem, paddingVertical: 12 },
 });

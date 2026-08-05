@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { View, Text, FlatList, Pressable, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useLocationStore } from '@/src/stores/locationStore';
@@ -88,25 +88,22 @@ export default function NearbyScreen() {
   }
 
   return (
-    <FlatList
-      data={nearbyStops}
-      keyExtractor={(item) => item.stop}
-      renderItem={({ item }) => (
+    <ScrollView style={styles.list}>
+      {nearbyStops.map((item) => (
         <NearbyStopCard
+          key={item.stop}
           stopName={isEN ? item.name_en : item.name_tc}
           distance={item.distance}
           routes={['—']}
           onPress={() => {
-            // Navigate to first route serving this stop
-            const routeId = '1A'; // fallback — in production, look up route for this stop
+            const routeId = '1A';
             router.push(
               `/eta/${routeId}?stopId=${item.stop}&bound=O`
             );
           }}
         />
-      )}
-      contentContainerStyle={styles.list}
-    />
+      ))}
+    </ScrollView>
   );
 }
 
@@ -131,5 +128,5 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   buttonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '600' },
-  list: { backgroundColor: COLORS.bgSystem, paddingVertical: 8 },
+  list: { flex: 1, backgroundColor: COLORS.bgSystem, paddingVertical: 8 },
 });

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { View, Text, FlatList, Pressable, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useRouteStore } from '@/src/stores/routeStore';
@@ -43,11 +43,10 @@ export default function SearchScreen() {
           <Text style={styles.emptyText}>{t('search.noResults')}</Text>
         </View>
       ) : (
-        <FlatList
-          data={filteredRoutes}
-          keyExtractor={(item) => item.route}
-          renderItem={({ item }) => (
+        <ScrollView style={styles.list}>
+          {filteredRoutes.map((item) => (
             <Pressable
+              key={item.route}
               style={styles.routeItem}
               onPress={() => handleRoutePress(item.route)}
             >
@@ -61,9 +60,8 @@ export default function SearchScreen() {
                 </Text>
               </View>
             </Pressable>
-          )}
-          contentContainerStyle={styles.list}
-        />
+          ))}
+        </ScrollView>
       )}
     </View>
   );
@@ -73,7 +71,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bgSystem },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyText: { fontSize: 17, color: COLORS.textSecondary },
-  list: { paddingVertical: 8 },
+  list: { flex: 1, paddingVertical: 8 },
   routeItem: {
     flexDirection: 'row',
     alignItems: 'center',

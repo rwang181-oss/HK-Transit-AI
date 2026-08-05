@@ -1,4 +1,4 @@
-import { View, Text, FlatList, Pressable, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useFavoriteStore } from '@/src/stores/favoriteStore';
@@ -55,13 +55,11 @@ export default function FavoritesScreen() {
   }
 
   return (
-    <FlatList
-      data={sections}
-      keyExtractor={(item) => item.key}
-      renderItem={({ item }) => {
+    <ScrollView style={styles.list}>
+      {sections.map((item) => {
         if (item.type === 'header') {
           return (
-            <View style={styles.sectionHeader}>
+            <View key={item.key} style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>{item.label}</Text>
               <Text style={styles.sectionCount}>{item.count}</Text>
             </View>
@@ -71,6 +69,7 @@ export default function FavoritesScreen() {
           const key = `${item.data.stopId}_${item.data.route}_${item.data.serviceType}`;
           return (
             <RouteCard
+              key={item.key}
               favorite={item.data}
               etas={etaCache[key] || []}
               onPress={() =>
@@ -84,6 +83,7 @@ export default function FavoritesScreen() {
         if (item.type === 'stop') {
           return (
             <Pressable
+              key={item.key}
               style={styles.stopItem}
               onPress={() =>
                 router.push(`/eta/1A?stopId=${item.data.stopId}&bound=O`)
@@ -96,9 +96,8 @@ export default function FavoritesScreen() {
           );
         }
         return null;
-      }}
-      contentContainerStyle={styles.list}
-    />
+      })}
+    </ScrollView>
   );
 }
 
@@ -110,7 +109,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.bgSystem,
   },
   emptyText: { fontSize: 17, color: COLORS.textSecondary },
-  list: { backgroundColor: COLORS.bgSystem, paddingVertical: 8 },
+  list: { flex: 1, backgroundColor: COLORS.bgSystem, paddingVertical: 8 },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, RefreshControl } from 'react-native';
 import { useLocalSearchParams, Stack } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useRouteStore } from '@/src/stores/routeStore';
@@ -109,10 +109,23 @@ export default function ETAScreen() {
           {bound === 'O' ? t('search.outbound') : t('search.inbound')} ⇄
         </Text>
       </View>
-      <FlatList
-        data={stopList}
-        keyExtractor={(item) => `${item.stop}_${item.seq}`}
-        renderItem={({ item }) => {
+      <ScrollView
+        style={styles.list}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={() =>
+              fetchETAForStop(
+                stopList[0]?.stop || '',
+                routeId,
+                serviceType
+              )
+            }
+            tintColor={COLORS.hkRed}
+          />
+        }
+      >
+        {stopList.map((item) => {
           const stop = getStopById(item.stop);
           const name = isEN ? stop?.name_en : stop?.name_tc;
           const key = `${item.stop}_${routeId}_${serviceType}`;
@@ -120,6 +133,7 @@ export default function ETAScreen() {
           const favStopId = item.stop;
           return (
             <StopItem
+              key={`${item.stop}_${item.seq}`}
               stopName={name || item.stop}
               seq={item.seq}
               etas={etas}
@@ -140,22 +154,8 @@ export default function ETAScreen() {
               }}
             />
           );
-        }}
-        refreshControl={
-          <RefreshControl
-            refreshing={loading}
-            onRefresh={() =>
-              fetchETAForStop(
-                stopList[0]?.stop || '',
-                routeId,
-                serviceType
-              )
-            }
-            tintColor={COLORS.hkRed}
-          />
-        }
-        contentContainerStyle={styles.list}
-      />
+        })}
+      </ScrollView>
     </View>
   );
 }
@@ -183,6 +183,6 @@ const styles = StyleSheet.create({
     color: COLORS.hkRed,
     fontWeight: '600',
   },
-  list: { paddingVertical: 8 },
+  list: { flex: 1, paddingVertical: 8 },
   favButton: { fontSize: 22, paddingHorizontal: 8 },
 });
