@@ -10,7 +10,7 @@
   },
   "search": {
     "title": "搜尋",
-    "placeholder": "輸入路線號碼",
+    "placeholder": "輸入路線，例如 1A",
     "noResults": "找不到相關路線",
     "direction": "方向",
     "outbound": "往",

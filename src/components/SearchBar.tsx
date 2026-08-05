@@ -18,8 +18,8 @@ export function SearchBar({ value, onChangeText }: SearchBarProps) {
         onChangeText={onChangeText}
         placeholder={t('search.placeholder')}
         placeholderTextColor={COLORS.textSecondary}
-        autoFocus
-        keyboardType="number-pad"
+        autoCapitalize="characters"
+        autoCorrect={false}
         returnKeyType="search"
         clearButtonMode="while-editing"
       />
