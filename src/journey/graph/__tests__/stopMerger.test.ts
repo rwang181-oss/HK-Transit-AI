@@ -1,14 +1,31 @@
-import { mergeStops, normalizeName } from '../stopMerger';
+import { mergeStops, normalizeName, cleanStopName } from '../stopMerger';
 import type { Stop } from '@/src/journey/providers/types';
 
 function makeStop(
   provider: Stop['provider'],
   stopId: string,
   name_en: string,
-  name_tc: string
+  name_tc: string,
+  name_sc?: string
 ): Stop {
-  return { stopId, name_en, name_tc, lat: 0, lng: 0, provider };
+  return { stopId, name_en, name_tc, name_sc, lat: 0, lng: 0, provider };
 }
+
+describe('cleanStopName', () => {
+  it('strips KMB stop codes in parentheses', () => {
+    expect(cleanStopName('竹園邨總站 (WT916)')).toBe('竹園邨總站');
+  });
+
+  it('strips GMB lamp-post codes', () => {
+    expect(cleanStopName('連德道興田邨外近燈柱 AA6591')).toBe(
+      '連德道興田邨外近燈柱'
+    );
+  });
+
+  it('leaves clean names untouched', () => {
+    expect(cleanStopName('紅磡站')).toBe('紅磡站');
+  });
+});
 
 describe('normalizeName', () => {
   it('strips parentheses and common suffixes', () => {
@@ -59,5 +76,22 @@ describe('mergeStops', () => {
     ];
     const hubs = mergeStops(stops);
     expect(hubs).toHaveLength(1);
+  });
+
+  it('keeps name_sc on merged hubs', () => {
+    const stops: Stop[] = [
+      makeStop('KMB', 'A1', 'Kowloon Tong Station', '九龍塘站', '九龙塘站'),
+    ];
+    const hubs = mergeStops(stops);
+    expect(hubs[0].name_sc).toBe('九龙塘站');
+  });
+
+  it('cleans stop codes from hub names', () => {
+    const stops: Stop[] = [
+      makeStop('KMB', 'A1', 'Chuk Yuen Est Term (WT916)', '竹園邨總站 (WT916)'),
+    ];
+    const hubs = mergeStops(stops);
+    expect(hubs[0].name_tc).toBe('竹園邨總站');
+    expect(hubs[0].name_en).toBe('Chuk Yuen Est Term');
   });
 });

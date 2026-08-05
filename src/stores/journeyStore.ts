@@ -107,19 +107,20 @@ export const useJourneyStore = create<JourneyState>((set, get) => ({
     for (const h of hubs) {
       const en = normalizeSearch(h.name_en);
       const tc = normalizeSearch(h.name_tc);
-      if (!en && !tc) continue;
-      // Bidirectional substring: station contains query (typing "旺角"),
-      // or query contains station (typing "旺角道XX號" → 旺角).
+      const sc = normalizeSearch(h.name_sc);
+      if (!en && !tc && !sc) continue;
+      // Bidirectional substring across en/tc/sc (sc covers simplified input)
       const inEn = en.includes(q);
       const inTc = tc.includes(q);
+      const inSc = sc.includes(q);
       const qInEn = q.includes(en);
       const qInTc = q.includes(tc);
-      if (inEn || inTc || qInEn || qInTc) {
-        // Score: prefer station-name prefix/short over long-address hit
+      const qInSc = q.includes(sc);
+      if (inEn || inTc || inSc || qInEn || qInTc || qInSc) {
         let score = 0;
-        if (inEn || inTc) score += 2;
-        if (en.startsWith(q) || tc.startsWith(q)) score += 3;
-        if (qInEn || qInTc) score += 1;
+        if (inEn || inTc || inSc) score += 2;
+        if (en.startsWith(q) || tc.startsWith(q) || sc.startsWith(q)) score += 3;
+        if (qInEn || qInTc || qInSc) score += 1;
         results.push({ hub: h, score });
       }
     }

@@ -29,6 +29,7 @@ export const kmbProvider: TransitProvider = {
       stopId: s.stop,
       name_en: s.name_en,
       name_tc: s.name_tc,
+      name_sc: (s as any).name_sc || '',
       lat: s.lat,
       lng: s.long,
       provider: 'KMB',

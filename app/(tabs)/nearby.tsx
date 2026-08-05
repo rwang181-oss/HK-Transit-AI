@@ -4,7 +4,11 @@ import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useLocationStore } from '@/src/stores/locationStore';
 import { useRouteStore } from '@/src/stores/routeStore';
-import { NearbyStopCard } from '@/src/components/NearbyStopCard';
+import {
+  NearbyStopCard,
+  type NearbyRouteAction,
+} from '@/src/components/NearbyStopCard';
+import { cleanStopName } from '@/src/journey/graph/stopMerger';
 import { COLORS } from '@/src/utils/constants';
 
 function haversine(
@@ -93,22 +97,26 @@ export default function NearbyScreen() {
     <ScrollView style={styles.list}>
       {nearbyStops.map((stop) => {
         const routes = getRoutesForStop(stop.stop);
-        const routeIds = routes.map((r) => r.route).slice(0, 5);
-        // Pick the first route for navigation, prefer normal service
-        const firstRoute = routes[0];
+        const actions: NearbyRouteAction[] = routes.map((r) => ({
+          route: r.route,
+          bound: r.bound,
+          serviceType: r.serviceType,
+          destEn: r.dest_en,
+          destTc: r.dest_tc,
+        }));
 
         return (
           <NearbyStopCard
             key={stop.stop}
-            stopName={isEN ? stop.name_en : stop.name_tc}
+            stopName={cleanStopName(
+              isEN ? stop.name_en : stop.name_tc
+            )}
             distance={stop.distance}
-            routes={routeIds.length > 0 ? routeIds : ['—']}
-            onPress={() => {
-              if (firstRoute) {
-                router.push(
-                  `/eta/${firstRoute.route}?bound=${firstRoute.bound}&stopId=${stop.stop}&serviceType=${firstRoute.serviceType}`
-                );
-              }
+            routes={actions}
+            onRoutePress={(r) => {
+              router.push(
+                `/eta/${r.route}?bound=${r.bound}&stopId=${stop.stop}&serviceType=${r.serviceType}`
+              );
             }}
           />
         );

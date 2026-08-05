@@ -53,13 +53,16 @@ export default function JourneyScreen() {
     [activeField, debouncedFrom, debouncedTo, searchStops]
   );
 
+  const hubName = (h: StopHub | null) =>
+    h ? (isEN ? h.name_en : h.name_tc || h.name_sc) : '';
+
   const handlePick = (hub: StopHub) => {
     if (activeField === 'from') {
       setFromHub(hub);
-      setFromQuery(isEN ? hub.name_en : hub.name_tc);
+      setFromQuery(hubName(hub));
     } else if (activeField === 'to') {
       setToHub(hub);
-      setToQuery(isEN ? hub.name_en : hub.name_tc);
+      setToQuery(hubName(hub));
     }
     setActiveField(null);
   };
@@ -67,8 +70,8 @@ export default function JourneyScreen() {
   const handleSwap = () => {
     setFromHub(toHub);
     setToHub(fromHub);
-    setFromQuery(toHub ? (isEN ? toHub.name_en : toHub.name_tc) : '');
-    setToQuery(fromHub ? (isEN ? fromHub.name_en : fromHub.name_tc) : '');
+    setFromQuery(hubName(toHub));
+    setToQuery(hubName(fromHub));
   };
 
   const handlePlan = () => {
@@ -163,7 +166,7 @@ export default function JourneyScreen() {
                 onPress={() => handlePick(hub)}
               >
                 <Text style={styles.resultName}>
-                  {isEN ? hub.name_en : hub.name_tc}
+                  {isEN ? hub.name_en : hub.name_tc || hub.name_sc}
                 </Text>
                 <Text style={styles.resultMeta}>
                   {hub.members

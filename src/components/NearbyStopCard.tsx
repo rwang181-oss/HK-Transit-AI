@@ -1,37 +1,52 @@
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { COLORS } from '@/src/utils/constants';
 import { formatDistance } from '@/src/utils/formatters';
-import { useTranslation } from 'react-i18next';
+
+export interface NearbyRouteAction {
+  route: string;
+  bound: 'O' | 'I';
+  serviceType: number;
+  destEn: string;
+  destTc: string;
+}
 
 interface NearbyStopCardProps {
   stopName: string;
   distance: number;
-  routes: string[];
-  onPress: () => void;
+  routes: NearbyRouteAction[];
+  onRoutePress: (r: NearbyRouteAction) => void;
 }
 
 export function NearbyStopCard({
   stopName,
   distance,
   routes,
-  onPress,
+  onRoutePress,
 }: NearbyStopCardProps) {
-  const { t } = useTranslation();
-
   return (
-    <Pressable style={styles.card} onPress={onPress}>
+    <View style={styles.card}>
       <View style={styles.header}>
         <Text style={styles.name} numberOfLines={1}>
           {stopName}
         </Text>
-        <View style={styles.distanceBadge}>
-          <Text style={styles.distanceText}>{formatDistance(distance)}</Text>
-        </View>
+        <Text style={styles.distance}>{formatDistance(distance)}</Text>
       </View>
-      <Text style={styles.routes} numberOfLines={1}>
-        {t('nearby.routes')}: {routes.join(', ')}
-      </Text>
-    </Pressable>
+      {routes.length === 0 ? (
+        <Text style={styles.empty}>—</Text>
+      ) : (
+        <View style={styles.routes}>
+          {routes.map((r) => (
+            <Pressable
+              key={`${r.route}-${r.bound}`}
+              style={styles.routeChip}
+              onPress={() => onRoutePress(r)}
+            >
+              <Text style={styles.routeText}>{r.route}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -52,28 +67,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: 8,
   },
   name: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '600',
     color: COLORS.textPrimary,
     flex: 1,
     marginRight: 8,
   },
-  distanceBadge: {
-    backgroundColor: COLORS.hkRed,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  distanceText: {
-    color: '#FFFFFF',
+  distance: {
     fontSize: 13,
-    fontWeight: '600',
-  },
-  routes: {
-    fontSize: 14,
     color: COLORS.textSecondary,
   },
+  routes: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  routeChip: {
+    backgroundColor: COLORS.bgSystem,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+  },
+  routeText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.hkRed,
+  },
+  empty: { fontSize: 14, color: COLORS.textSecondary },
 });

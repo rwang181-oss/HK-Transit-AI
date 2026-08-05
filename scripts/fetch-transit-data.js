@@ -90,6 +90,7 @@ async function crawlCtb() {
         stopId: data.stop,
         name_en: data.name_en || '',
         name_tc: data.name_tc || '',
+        name_sc: data.name_sc || '',
         lat: parseFloat(data.lat) || 0,
         lng: parseFloat(data.long) || 0,
       };
@@ -164,6 +165,7 @@ async function crawlGmb() {
                 stopMap.set(sid, {
                   name_en: rs.name_en || '',
                   name_tc: rs.name_tc || '',
+                  name_sc: rs.name_sc || '',
                 });
               }
               routeStops.push({
@@ -186,6 +188,7 @@ async function crawlGmb() {
     stopId,
     name_en: n.name_en,
     name_tc: n.name_tc,
+    name_sc: n.name_sc,
     lat: 0,
     lng: 0,
   }));

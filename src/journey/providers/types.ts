@@ -14,6 +14,7 @@ export interface Stop {
   stopId: string; // provider-specific id
   name_en: string;
   name_tc: string;
+  name_sc?: string; // simplified chinese, when available
   lat: number;
   lng: number;
   provider: ProviderId;

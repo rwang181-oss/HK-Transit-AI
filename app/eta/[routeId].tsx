@@ -6,6 +6,7 @@ import { useRouteStore } from '@/src/stores/routeStore';
 import { useETAStore } from '@/src/stores/etaStore';
 import { useFavoriteStore } from '@/src/stores/favoriteStore';
 import { StopItem } from '@/src/components/StopItem';
+import { cleanStopName } from '@/src/journey/graph/stopMerger';
 import { COLORS } from '@/src/utils/constants';
 import type { RouteStop } from '@/src/services/kmbAPI';
 
@@ -135,7 +136,9 @@ export default function ETAScreen() {
       >
         {stopList.map((item) => {
           const stop = getStopById(item.stop);
-          const name = isEN ? stop?.name_en : stop?.name_tc;
+          const name = cleanStopName(
+            isEN ? stop?.name_en || '' : stop?.name_tc || ''
+          );
           const key = `${item.stop}_${routeId}_${serviceType}`;
           const etas = etaCache[key] || [];
           const favStopId = item.stop;
