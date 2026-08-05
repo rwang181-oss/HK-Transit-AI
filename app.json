@@ -26,8 +26,7 @@
       "expo-location"
     ],
     "experiments": {
-      "typedRoutes": true,
-      "baseUrl": "/HK-Transit-AI/"
+      "typedRoutes": true
     }
   }
 }
