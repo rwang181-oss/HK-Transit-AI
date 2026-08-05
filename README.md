@@ -60,6 +60,20 @@ Open in browser → test on iPhone → "Add to Home Screen" for PWA.
 - [x] GPS nearby stops
 - [x] Bilingual UI (English / 繁體中文)
 - [x] PWA (iPhone home screen installable)
+- [x] **Journey Planner** — point-to-point routes across KMB / Citybus / Green Minibus / MTR, with transfer recommendations and fastest-route flag
+
+## Journey Planner / 行程規劃
+
+Point-to-point planning across 4 operators:
+- **九巴 KMB** — data.etabus.gov.hk
+- **城巴 Citybus** — rt.data.gov.hk (snapshot in `src/data/ctb.json`)
+- **綠色小巴 GMB** — data.etagmb.gov.hk (snapshot in `src/data/gmb.json`)
+- **港鐵 MTR** — rt.data.gov.hk + MTR station catalogue
+
+Data refresh:
+```bash
+node scripts/fetch-transit-data.js
+```
 
 ## Roadmap
 
@@ -67,6 +81,7 @@ Open in browser → test on iPhone → "Add to Home Screen" for PWA.
 - iOS Widget
 - Push notifications
 - Siri Shortcuts
+- More accurate travel times (GTFS schedule data)
 
 ### Phase 3 — AI
 - Personal commute assistant
