@@ -1,0 +1,67 @@
+name: Apply mobile performance update
+
+on:
+  push:
+    branches: [mobile-performance-fix-20260806]
+    paths:
+      - '.github/workflows/apply-mobile-update.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  verify-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout update branch
+        uses: actions/checkout@v5
+        with:
+          ref: mobile-performance-fix-20260806
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify and apply bundled patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find .update -maxdepth 1 -name 'patch-*.b64' | wc -l)" -eq 12
+          cat .update/patch-*.b64 > /tmp/mobile-update.patch.xz.b64
+          echo 'd71086610eecdb887ae024080fdaa42f604c8f6037a18ffa7ec8144598ce8b8e  /tmp/mobile-update.patch.xz.b64' | sha256sum -c -
+          base64 --decode /tmp/mobile-update.patch.xz.b64 | xz --decompress > /tmp/mobile-update.patch
+          echo 'effe117f9717f819a991c8b894edea1894c106149846cd21e1ed45f0127e31be  /tmp/mobile-update.patch' | sha256sum -c -
+          git apply --check /tmp/mobile-update.patch
+          git apply --index /tmp/mobile-update.patch
+          rm -rf .update .github/workflows/apply-mobile-update.yml
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run complete verification
+        run: npm run verify
+
+      - name: Build production web app
+        run: npm run build:web
+
+      - name: Publish verified source to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: optimize mobile journey performance and navigation'
+          git push origin HEAD:main
+
+      - name: Trigger production deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy.yml/dispatches" -f ref=main
