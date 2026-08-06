@@ -1,5 +1,5 @@
 name: Apply mobile performance update
-# Trigger the verified one-time publication workflow.
+# Retry verified publication after GitHub Actions incident mitigation.
 
 on:
   push:
@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   verify-and-publish:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout update branch
