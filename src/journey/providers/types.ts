@@ -8,6 +8,9 @@ export interface Route {
   dest_en: string;
   dest_tc: string;
   provider: ProviderId;
+  sourceRouteId?: string;
+  routeSeq?: number;
+  region?: string;
 }
 
 export interface Stop {
@@ -26,6 +29,9 @@ export interface RouteStopLink {
   seq: number;
   stopId: string;
   provider: ProviderId;
+  sourceRouteId?: string;
+  routeSeq?: number;
+  stopSeq?: number;
 }
 
 export interface ETA {
@@ -36,6 +42,8 @@ export interface ETA {
   dest_en?: string;
   dest_tc?: string;
   provider: ProviderId;
+  remark_en?: string;
+  remark_tc?: string;
 }
 
 export interface TransitProvider {

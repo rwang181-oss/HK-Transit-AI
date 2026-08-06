@@ -1,29 +1,48 @@
 {
   "expo": {
-    "name": "港巴通 HK Transit",
+    "name": "HK Transit AI",
     "slug": "hk-transit-ai",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "hk-transit",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "splash": {
-      "backgroundColor": "#F2F2F7"
+      "backgroundColor": "#F4F6F8"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.rwang181.hktransitai",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "HK Transit AI uses your location to plan nearby journeys and recalibrate walking time while the app is open."
+      }
+    },
+    "android": {
+      "package": "com.rwang181.hktransitai",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
-      "name": "港巴通 HK Transit",
-      "shortName": "港巴通",
-      "lang": "en",
+      "name": "HK Transit AI",
+      "shortName": "HK Transit AI",
+      "lang": "zh-HK",
       "themeColor": "#C41230",
-      "backgroundColor": "#F2F2F7",
+      "backgroundColor": "#F4F6F8",
       "display": "standalone",
       "orientation": "portrait"
     },
     "plugins": [
       "expo-router",
       "expo-localization",
-      "expo-location"
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow HK Transit AI to use your location for nearby journey planning and live walking-time recalibration."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

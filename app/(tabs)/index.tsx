@@ -1,329 +1,386 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  TextInput,
+  ActivityIndicator,
   Pressable,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
-import { useJourneyStore, type TripPoint } from '@/src/stores/journeyStore';
-import type { StopHub } from '@/src/journey/graph/stopMerger';
+import {
+  useJourneyStore,
+  type PlaceSuggestion,
+  type TripPoint,
+} from '@/src/stores/journeyStore';
 import { useLocationStore } from '@/src/stores/locationStore';
+import { useWeatherStore } from '@/src/stores/weatherStore';
 import { TransitMap } from '@/src/components/TransitMap';
 import { COLORS } from '@/src/utils/constants';
 
 type Target = 'from' | 'to';
 
+function providerSummary(item: PlaceSuggestion, translate: (key: string) => string): string {
+  if (item.kind === 'place') return item.secondary || '';
+  return (item.providers || []).map((provider) => translate(`providers.${provider}`)).join(' · ');
+}
+
 export default function JourneyScreen() {
   const { t, i18n } = useTranslation();
   const router = useRouter();
-  const isEN = i18n.language === 'en';
-  const { status, loadData, searchAny, getHubById } = useJourneyStore();
-  const { position, requestPermission, permissionGranted, getPosition } =
-    useLocationStore();
+  const { status, error, dataWarnings, loadData, searchAny } = useJourneyStore();
+  const { position, loading: locationLoading, requestPermission, getPosition } = useLocationStore();
+  const { weather, refresh: refreshWeather } = useWeatherStore();
 
   const [fromPoint, setFromPoint] = useState<TripPoint | null>(null);
   const [toPoint, setToPoint] = useState<TripPoint | null>(null);
   const [fromQuery, setFromQuery] = useState('');
   const [toQuery, setToQuery] = useState('');
   const [activeField, setActiveField] = useState<Target | null>(null);
-  const [debouncedFrom, setDebouncedFrom] = useState('');
-  const [debouncedTo, setDebouncedTo] = useState('');
-  const [suggestions, setSuggestions] = useState<StopHub[]>([]);
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
+
+  const isEnglish = i18n.language === 'en';
+  const myLocationLabel = t('journey.myLocation');
 
   useEffect(() => {
     loadData();
-    requestPermission().then((ok) => {
-      if (ok) getPosition();
-    });
+    refreshWeather();
+    void (async () => {
+      const allowed = await requestPermission();
+      if (allowed) await getPosition();
+    })();
   }, []);
 
-  // Set start = current location once GPS arrives (if user hasn't picked)
   useEffect(() => {
-    if (position && !fromPoint) {
-      setFromPoint({
-        lat: position.lat,
-        lng: position.lng,
-        name: isEN ? 'My location' : '我的位置',
-      });
-    }
-  }, [position]);
+    if (!position || fromPoint) return;
+    const point = { ...position, name: myLocationLabel };
+    setFromPoint(point);
+    setFromQuery(myLocationLabel);
+  }, [position, myLocationLabel]);
 
-  // Debounce + run searchAny (station fuzzy → geocode)
-  useEffect(() => {
-    if (activeField === 'from') {
-      const id = setTimeout(() => setDebouncedFrom(fromQuery), 400);
-      return () => clearTimeout(id);
-    }
-    if (activeField === 'to') {
-      const id = setTimeout(() => setDebouncedTo(toQuery), 400);
-      return () => clearTimeout(id);
-    }
-  }, [fromQuery, toQuery, activeField]);
-
-  const activeQuery = activeField === 'from' ? debouncedFrom : debouncedTo;
+  const activeQuery = activeField === 'from' ? fromQuery : activeField === 'to' ? toQuery : '';
 
   useEffect(() => {
     let cancelled = false;
-    if (!activeField || !activeQuery.trim()) {
+    const query = activeQuery.trim();
+    if (!activeField || query.length < 2) {
       setSuggestions([]);
+      setSearching(false);
       return;
     }
-    setSearching(true);
-    searchAny(activeQuery).then((hits) => {
-      if (!cancelled) {
-        setSuggestions(hits);
-        setSearching(false);
-      }
-    });
+    const timer = setTimeout(() => {
+      setSearching(true);
+      searchAny(query)
+        .then((items) => {
+          if (!cancelled) setSuggestions(items);
+        })
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
+    }, 350);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
-  }, [activeField, activeQuery]);
+  }, [activeField, activeQuery, searchAny]);
 
-  const hubName = (h: StopHub | null) =>
-    h ? (isEN ? h.name_en : h.name_tc || h.name_sc) : '';
+  const mapPoints = useMemo(() => {
+    const items: Array<{
+      lat: number;
+      lng: number;
+      kind: 'me' | 'start' | 'end';
+      label?: string;
+    }> = [];
+    if (position) items.push({ ...position, kind: 'me', label: myLocationLabel });
+    if (fromPoint) items.push({ lat: fromPoint.lat, lng: fromPoint.lng, kind: 'start', label: fromPoint.name });
+    if (toPoint) items.push({ lat: toPoint.lat, lng: toPoint.lng, kind: 'end', label: toPoint.name });
+    return items;
+  }, [position, fromPoint, toPoint, myLocationLabel]);
 
-  const pickHub = (hub: StopHub) => {
-    const pt: TripPoint = {
-      lat: hub.lat || 0,
-      lng: hub.lng || 0,
-      name: hubName(hub),
-    };
+  const center = toPoint || fromPoint || position || { lat: 22.3027, lng: 114.1772 };
+
+  const selectSuggestion = (item: PlaceSuggestion) => {
+    const point: TripPoint = { lat: item.lat, lng: item.lng, name: item.name };
     if (activeField === 'from') {
-      setFromPoint(pt);
-      setFromQuery(hubName(hub));
-    } else if (activeField === 'to') {
-      setToPoint(pt);
-      setToQuery(hubName(hub));
+      setFromPoint(point);
+      setFromQuery(item.name);
+    } else {
+      setToPoint(point);
+      setToQuery(item.name);
     }
     setActiveField(null);
     setSuggestions([]);
   };
 
-  const pickMapPoint = (p: { lat: number; lng: number }) => {
-    const pt: TripPoint = {
-      lat: p.lat,
-      lng: p.lng,
-      name: isEN ? 'Map point' : '地圖選點',
-    };
+  const selectMapPoint = (coordinate: { lat: number; lng: number }) => {
+    if (!activeField) return;
+    const point = { ...coordinate, name: t('journey.mapPoint') };
     if (activeField === 'from') {
-      setFromPoint(pt);
-      setFromQuery(isEN ? 'Map point' : '地圖選點');
-    } else if (activeField === 'to') {
-      setToPoint(pt);
-      setToQuery(isEN ? 'Map point' : '地圖選點');
+      setFromPoint(point);
+      setFromQuery(point.name);
+    } else {
+      setToPoint(point);
+      setToQuery(point.name);
     }
+    setActiveField(null);
   };
 
-  const useMyLocation = () => {
-    requestPermission().then((ok) => {
-      if (ok) {
-        getPosition();
-        setTimeout(() => {
-          if (position) {
-            setFromPoint({
-              lat: position.lat,
-              lng: position.lng,
-              name: isEN ? 'My location' : '我的位置',
-            });
-            setFromQuery(isEN ? 'My location' : '我的位置');
-          }
-        }, 600);
-      }
-    });
+  const useCurrentLocation = async () => {
+    const allowed = await requestPermission();
+    if (!allowed) return;
+    await getPosition();
+    const latest = useLocationStore.getState().position;
+    if (!latest) return;
+    setFromPoint({ ...latest, name: myLocationLabel });
+    setFromQuery(myLocationLabel);
+    setActiveField(null);
   };
 
-  const handleSwap = () => {
+  const swapPoints = () => {
     setFromPoint(toPoint);
     setToPoint(fromPoint);
     setFromQuery(toPoint?.name || '');
     setToQuery(fromPoint?.name || '');
   };
 
-  const handlePlan = () => {
-    if (fromPoint && toPoint) {
-      router.push(
-        `/journey/result?fromLat=${fromPoint.lat}&fromLng=${fromPoint.lng}&fromName=${encodeURIComponent(fromPoint.name)}&toLat=${toPoint.lat}&toLng=${toPoint.lng}&toName=${encodeURIComponent(toPoint.name)}` as any
-      );
-    }
+  const planJourney = () => {
+    if (!fromPoint || !toPoint) return;
+    const params = new URLSearchParams({
+      fromLat: String(fromPoint.lat),
+      fromLng: String(fromPoint.lng),
+      fromName: fromPoint.name,
+      toLat: String(toPoint.lat),
+      toLng: String(toPoint.lng),
+      toName: toPoint.name,
+    });
+    router.push(`/journey/result?${params.toString()}` as never);
   };
 
-  const mapPoints = [];
-  if (position) mapPoints.push({ lat: position.lat, lng: position.lng, kind: 'me' as const });
-  if (fromPoint) mapPoints.push({ lat: fromPoint.lat, lng: fromPoint.lng, kind: 'start' as const, label: fromPoint.name });
-  if (toPoint) mapPoints.push({ lat: toPoint.lat, lng: toPoint.lng, kind: 'end' as const, label: toPoint.name });
-
-  const mapCenter = toPoint || fromPoint || position || { lat: 22.3027, lng: 114.1772 };
+  const weatherParts = [
+    weather.temperatureC == null ? null : `${Math.round(weather.temperatureC)}°`,
+    weather.uvIndex == null ? null : `UV ${weather.uvIndex}`,
+    t(`weather.rain.${weather.rainIntensity}`),
+  ].filter(Boolean);
 
   return (
-    <View style={styles.container}>
-      <ScrollView keyboardShouldPersistTaps="handled">
-        <View style={styles.inputCard}>
-          {/* From */}
-          <Text style={styles.fieldLabel}>{t('journey.from')}</Text>
-          <View style={styles.inputRow}>
-            <TextInput
-              style={[styles.input, activeField === 'from' && styles.inputActive]}
-              value={fromQuery}
-              onChangeText={(v) => {
-                setFromQuery(v);
-                setFromPoint(null);
-                setActiveField('from');
-              }}
-              onFocus={() => setActiveField('from')}
-              placeholder={t('journey.fromPlaceholder')}
-              placeholderTextColor={COLORS.textSecondary}
-            />
-            <Pressable style={styles.iconBtn} onPress={useMyLocation}>
-              <Text style={styles.iconText}>📍</Text>
-            </Pressable>
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.brandRow}>
+          <View>
+            <Text style={styles.eyebrow}>{t('home.cityLabel')}</Text>
+            <Text style={styles.brand}>HK Transit AI</Text>
           </View>
+          <View style={styles.weatherPill}>
+            <Text style={styles.weatherText}>{weatherParts.join(' · ')}</Text>
+          </View>
+        </View>
 
-          {/* Swap */}
-          <Pressable style={styles.swapBtn} onPress={handleSwap}>
+        <Text style={styles.heroTitle}>{t('journey.heroTitle')}</Text>
+        <Text style={styles.heroSubtitle}>{t('journey.heroSubtitle')}</Text>
+
+        <View style={styles.searchCard}>
+          <View style={styles.routeRail}>
+            <View style={styles.startDot} />
+            <View style={styles.railLine} />
+            <View style={styles.endDot} />
+          </View>
+          <View style={styles.fields}>
+            <View style={styles.fieldRow}>
+              <TextInput
+                accessibilityLabel={t('journey.from')}
+                value={fromQuery}
+                onFocus={() => setActiveField('from')}
+                onChangeText={(value) => {
+                  setFromQuery(value);
+                  setFromPoint(null);
+                  setActiveField('from');
+                }}
+                placeholder={t('journey.fromPlaceholder')}
+                placeholderTextColor={COLORS.textTertiary}
+                style={[styles.input, activeField === 'from' && styles.inputActive]}
+              />
+              <Pressable style={styles.locationButton} onPress={useCurrentLocation}>
+                {locationLoading ? (
+                  <ActivityIndicator size="small" color={COLORS.jade} />
+                ) : (
+                  <Text style={styles.locationIcon}>◎</Text>
+                )}
+              </Pressable>
+            </View>
+            <View style={styles.divider} />
+            <TextInput
+              accessibilityLabel={t('journey.to')}
+              value={toQuery}
+              onFocus={() => setActiveField('to')}
+              onChangeText={(value) => {
+                setToQuery(value);
+                setToPoint(null);
+                setActiveField('to');
+              }}
+              placeholder={t('journey.toPlaceholder')}
+              placeholderTextColor={COLORS.textTertiary}
+              style={[styles.input, activeField === 'to' && styles.inputActive]}
+            />
+          </View>
+          <Pressable style={styles.swapButton} onPress={swapPoints}>
             <Text style={styles.swapText}>⇅</Text>
           </Pressable>
+        </View>
 
-          {/* To */}
-          <Text style={styles.fieldLabel}>{t('journey.to')}</Text>
-          <TextInput
-            style={[styles.input, activeField === 'to' && styles.inputActive]}
-            value={toQuery}
-            onChangeText={(v) => {
-              setToQuery(v);
-              setToPoint(null);
-              setActiveField('to');
-            }}
-            onFocus={() => setActiveField('to')}
-            placeholder={t('journey.toPlaceholder')}
-            placeholderTextColor={COLORS.textSecondary}
-          />
+        {activeField ? (
+          <Text style={styles.mapHint}>{t('journey.searchOrTapMap')}</Text>
+        ) : null}
 
-          {/* Suggestions */}
-          {activeField && suggestions.length > 0 && (
-            <View style={styles.suggestBox}>
-              {suggestions.map((hub) => (
+        {(searching || suggestions.length > 0) && (
+          <View style={styles.suggestionCard}>
+            {searching ? (
+              <View style={styles.searchingRow}>
+                <ActivityIndicator size="small" color={COLORS.hkRed} />
+                <Text style={styles.searchingText}>{t('journey.searching')}</Text>
+              </View>
+            ) : (
+              suggestions.map((item) => (
                 <Pressable
-                  key={hub.id}
-                  style={styles.resultItem}
-                  onPress={() => pickHub(hub)}
+                  key={item.id}
+                  onPress={() => selectSuggestion(item)}
+                  style={styles.suggestionRow}
                 >
-                  <Text style={styles.resultName}>
-                    {isEN ? hub.name_en : hub.name_tc || hub.name_sc}
-                  </Text>
-                  {hub.lat ? (
-                    <Text style={styles.resultMeta}>
-                      {hub.members
-                        .map((m) => t(`providers.${m.provider}`))
-                        .join(' · ')}
+                  <View style={[styles.suggestionIcon, item.kind === 'place' && styles.placeIcon]}>
+                    <Text>{item.kind === 'hub' ? '◉' : '⌖'}</Text>
+                  </View>
+                  <View style={styles.suggestionTextBlock}>
+                    <Text style={styles.suggestionName} numberOfLines={1}>{item.name}</Text>
+                    <Text style={styles.suggestionMeta} numberOfLines={1}>
+                      {providerSummary(item, t)}
                     </Text>
-                  ) : null}
+                  </View>
                 </Pressable>
-              ))}
-            </View>
-          )}
+              ))
+            )}
+          </View>
+        )}
 
-          <Pressable
-            style={[
-              styles.planBtn,
-              !(fromPoint && toPoint) && styles.planBtnDisabled,
-            ]}
-            onPress={handlePlan}
-            disabled={!(fromPoint && toPoint)}
-          >
-            <Text style={styles.planBtnText}>{t('journey.plan')}</Text>
-          </Pressable>
-        </View>
-
-        {/* Map */}
-        <View style={styles.mapWrap}>
+        <View style={styles.mapFrame}>
           <TransitMap
-            center={mapCenter}
+            center={center}
             points={mapPoints}
-            height={220}
-            onPickPoint={(p) => {
-              if (activeField) pickMapPoint(p);
-            }}
+            height={330}
+            onPickPoint={selectMapPoint}
           />
-          <Text style={styles.mapHint}>
-            {activeField
-              ? isEN
-                ? 'Tap the map to pick a point'
-                : '點擊地圖選取位置'
-              : isEN
-                ? 'Tap a field then tap the map'
-                : '先選輸入框，再點擊地圖選點'}
-          </Text>
+          <View pointerEvents="none" style={styles.mapBadge}>
+            <Text style={styles.mapBadgeText}>{t('journey.localFirst')}</Text>
+          </View>
         </View>
+
+        {status === 'loading' ? (
+          <View style={styles.notice}>
+            <ActivityIndicator size="small" color={COLORS.hkRed} />
+            <Text style={styles.noticeText}>{t('journey.loadingData')}</Text>
+          </View>
+        ) : status === 'error' ? (
+          <View style={[styles.notice, styles.errorNotice]}>
+            <Text style={styles.errorText}>{t('journey.dataError')}</Text>
+            <Pressable onPress={loadData}><Text style={styles.retryText}>{t('common.retry')}</Text></Pressable>
+          </View>
+        ) : dataWarnings.length > 0 ? (
+          <Text style={styles.warningText}>{t('journey.cachedDataNotice')}</Text>
+        ) : null}
+
+        <Pressable
+          accessibilityRole="button"
+          disabled={!fromPoint || !toPoint || status !== 'ready'}
+          onPress={planJourney}
+          style={[
+            styles.planButton,
+            (!fromPoint || !toPoint || status !== 'ready') && styles.planButtonDisabled,
+          ]}
+        >
+          <Text style={styles.planButtonText}>{t('journey.planComfortRoute')}</Text>
+          <Text style={styles.planArrow}>→</Text>
+        </Pressable>
+
+        <View style={styles.promiseRow}>
+          <View style={styles.promiseItem}>
+            <Text style={styles.promiseIcon}>☂</Text>
+            <Text style={styles.promiseText}>{t('journey.promiseWeather')}</Text>
+          </View>
+          <View style={styles.promiseItem}>
+            <Text style={styles.promiseIcon}>◷</Text>
+            <Text style={styles.promiseText}>{t('journey.promiseRealtime')}</Text>
+          </View>
+          <View style={styles.promiseItem}>
+            <Text style={styles.promiseIcon}>⌁</Text>
+            <Text style={styles.promiseText}>{t('journey.promiseLocal')}</Text>
+          </View>
+        </View>
+
+        {error ? <Text style={styles.debugError}>{error}</Text> : null}
+        <Text style={styles.languageNote}>{isEnglish ? '繁體中文及 English' : '繁體中文及 English'}</Text>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.bgSystem },
-  inputCard: {
-    backgroundColor: COLORS.bgCard,
-    margin: 16,
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  fieldLabel: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-    marginBottom: 6,
-    marginTop: 8,
-  },
-  inputRow: { flexDirection: 'row', alignItems: 'center' },
-  input: {
-    flex: 1,
-    backgroundColor: COLORS.bgSystem,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 17,
-    color: COLORS.textPrimary,
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  inputActive: { borderColor: COLORS.hkRed },
-  iconBtn: { padding: 10, marginLeft: 6 },
-  iconText: { fontSize: 20 },
-  swapBtn: { alignSelf: 'center', padding: 8, marginVertical: 6 },
-  swapText: { fontSize: 22, color: COLORS.hkRed },
-  suggestBox: { marginTop: 8 },
-  resultItem: {
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: COLORS.bgSystem,
-    marginBottom: 6,
-  },
-  resultName: { fontSize: 16, color: COLORS.textPrimary },
-  resultMeta: { fontSize: 13, color: COLORS.textSecondary, marginTop: 2 },
-  planBtn: {
-    backgroundColor: COLORS.hkRed,
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  planBtnDisabled: { opacity: 0.4 },
-  planBtnText: { color: '#FFFFFF', fontSize: 17, fontWeight: '600' },
-  mapWrap: { marginHorizontal: 16, marginBottom: 24 },
-  mapHint: {
-    textAlign: 'center',
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    marginTop: 6,
-  },
+  safeArea: { flex: 1, backgroundColor: COLORS.bgSystem },
+  container: { flex: 1 },
+  content: { paddingBottom: 36 },
+  brandRow: { paddingHorizontal: 20, paddingTop: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  eyebrow: { color: COLORS.hkRed, fontSize: 11, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' },
+  brand: { color: COLORS.textPrimary, fontSize: 19, fontWeight: '800', marginTop: 2 },
+  weatherPill: { backgroundColor: COLORS.bgCard, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 11, paddingVertical: 8, maxWidth: '55%' },
+  weatherText: { color: COLORS.textSecondary, fontSize: 11, fontWeight: '600' },
+  heroTitle: { color: COLORS.textPrimary, fontSize: 32, lineHeight: 39, fontWeight: '800', paddingHorizontal: 20, marginTop: 24, maxWidth: 560 },
+  heroSubtitle: { color: COLORS.textSecondary, fontSize: 14, lineHeight: 21, paddingHorizontal: 20, marginTop: 8, maxWidth: 620 },
+  searchCard: { marginHorizontal: 16, marginTop: 20, backgroundColor: COLORS.bgCard, borderRadius: 22, borderWidth: 1, borderColor: COLORS.border, padding: 13, flexDirection: 'row', alignItems: 'center', shadowColor: '#102A43', shadowOffset: { width: 0, height: 9 }, shadowOpacity: 0.07, shadowRadius: 20, elevation: 3 },
+  routeRail: { width: 22, alignItems: 'center', alignSelf: 'stretch', justifyContent: 'center' },
+  startDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.jade },
+  railLine: { width: 2, flex: 1, minHeight: 28, backgroundColor: COLORS.border, marginVertical: 4 },
+  endDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.hkRed },
+  fields: { flex: 1, marginLeft: 7 },
+  fieldRow: { flexDirection: 'row', alignItems: 'center' },
+  input: { flex: 1, minHeight: 45, color: COLORS.textPrimary, fontSize: 15, paddingHorizontal: 10, borderRadius: 12 },
+  inputActive: { backgroundColor: COLORS.bgRaised },
+  divider: { height: 1, backgroundColor: COLORS.border, marginHorizontal: 10 },
+  locationButton: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#E7F6F3', alignItems: 'center', justifyContent: 'center' },
+  locationIcon: { color: COLORS.jade, fontSize: 22, fontWeight: '700' },
+  swapButton: { width: 40, height: 40, borderRadius: 13, backgroundColor: COLORS.bgRaised, alignItems: 'center', justifyContent: 'center', marginLeft: 9 },
+  swapText: { color: COLORS.textPrimary, fontSize: 19, fontWeight: '700' },
+  mapHint: { color: COLORS.jade, fontSize: 11, fontWeight: '600', paddingHorizontal: 20, marginTop: 8 },
+  suggestionCard: { marginHorizontal: 16, marginTop: 9, backgroundColor: COLORS.bgCard, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, overflow: 'hidden', zIndex: 5 },
+  searchingRow: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16 },
+  searchingText: { color: COLORS.textSecondary, fontSize: 13 },
+  suggestionRow: { minHeight: 60, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.border },
+  suggestionIcon: { width: 34, height: 34, borderRadius: 12, backgroundColor: '#E7F6F3', alignItems: 'center', justifyContent: 'center' },
+  placeIcon: { backgroundColor: COLORS.sky },
+  suggestionTextBlock: { flex: 1, marginLeft: 11 },
+  suggestionName: { color: COLORS.textPrimary, fontSize: 14, fontWeight: '600' },
+  suggestionMeta: { color: COLORS.textTertiary, fontSize: 11, marginTop: 3 },
+  mapFrame: { marginHorizontal: 16, marginTop: 14, position: 'relative' },
+  mapBadge: { position: 'absolute', left: 12, bottom: 12, backgroundColor: 'rgba(16,42,67,0.88)', borderRadius: 11, paddingHorizontal: 10, paddingVertical: 7 },
+  mapBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '600' },
+  notice: { minHeight: 44, marginHorizontal: 18, marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
+  noticeText: { color: COLORS.textSecondary, fontSize: 12 },
+  errorNotice: { justifyContent: 'space-between' },
+  errorText: { color: COLORS.hkRed, fontSize: 12 },
+  retryText: { color: COLORS.hkRed, fontSize: 12, fontWeight: '700' },
+  warningText: { color: COLORS.etaWarning, fontSize: 11, textAlign: 'center', marginHorizontal: 20, marginTop: 10 },
+  planButton: { marginHorizontal: 16, marginTop: 15, minHeight: 56, backgroundColor: COLORS.hkRed, borderRadius: 18, paddingHorizontal: 19, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  planButtonDisabled: { opacity: 0.4 },
+  planButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  planArrow: { color: '#FFFFFF', fontSize: 23 },
+  promiseRow: { flexDirection: 'row', gap: 8, marginHorizontal: 16, marginTop: 13 },
+  promiseItem: { flex: 1, minHeight: 68, borderRadius: 16, backgroundColor: COLORS.bgCard, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  promiseIcon: { fontSize: 18 },
+  promiseText: { color: COLORS.textSecondary, fontSize: 10, lineHeight: 14, textAlign: 'center', marginTop: 4 },
+  debugError: { color: COLORS.hkRed, fontSize: 10, margin: 16 },
+  languageNote: { textAlign: 'center', color: COLORS.textTertiary, fontSize: 10, marginTop: 18 },
 });

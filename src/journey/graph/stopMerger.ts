@@ -1,4 +1,5 @@
 import type { Stop, ProviderId } from '@/src/journey/providers/types';
+import { haversineMeters } from './travelTime';
 
 export interface StopHubMember {
   provider: ProviderId;
@@ -15,71 +16,95 @@ export interface StopHub {
   members: StopHubMember[];
 }
 
+const MAX_SAME_NAME_MERGE_DISTANCE_M = 350;
+const GEO_CELL_DEGREES = 0.005;
+
 /** Remove stop codes like (WT916), AA6591, and collapse whitespace. */
 export function cleanStopName(name: string): string {
   return (name || '')
-    .replace(/[（(][A-Za-z]{1,3}\d{3,4}[)）]/g, ' ') // (WT916)
-    .replace(/\b[A-Za-z]{1,3}\d{3,4}\b/g, ' ') // AA6591
+    .replace(/[（(][A-Za-z]{1,3}\d{3,4}[)）]/g, ' ')
+    .replace(/\b[A-Za-z]{1,3}\d{3,4}\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-/** Normalize a stop name into a merge key. */
+/** Normalize a stop name into a multilingual merge key. */
 export function normalizeName(name: string): string {
   return cleanStopName(name)
     .toLowerCase()
-    .replace(/[（(].*?[)）]/g, ' ') // strip parenthetical qualifiers
+    .replace(/[（(].*?[)）]/g, ' ')
     .replace(/\b(terminus|station|bus stop|public transport interchange|stop)\b/g, ' ')
-    .replace(/[站總站巴士公共運輸交匯處]/g, ' ')
+    .replace(/[站總巴士公共運輸交匯處]/g, ' ')
     .replace(/[^a-z0-9一-鿿 ]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-/** Pick the first non-empty value, else fall back to the current. */
 function firstNonEmpty(candidates: (string | undefined)[], current: string): string {
   return candidates.find((c) => c && c.trim().length > 0)?.trim() || current;
 }
 
+function hasCoordinates(value: { lat: number; lng: number }): boolean {
+  return Number.isFinite(value.lat) && Number.isFinite(value.lng) && value.lat !== 0 && value.lng !== 0;
+}
+
+function stableHash(input: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function hubKey(normalizedName: string, stop: Stop): string {
+  if (!hasCoordinates(stop)) return normalizedName;
+  const gx = Math.floor(stop.lng / GEO_CELL_DEGREES);
+  const gy = Math.floor(stop.lat / GEO_CELL_DEGREES);
+  return `${normalizedName}:${gx}:${gy}`;
+}
+
+function canMerge(existing: StopHub, stop: Stop): boolean {
+  if (!hasCoordinates(existing) || !hasCoordinates(stop)) return true;
+  return haversineMeters(existing.lat, existing.lng, stop.lat, stop.lng) <= MAX_SAME_NAME_MERGE_DISTANCE_M;
+}
+
 /**
- * Merge stops from all providers into hubs.
- * Primary key: normalized name (handles 紅磡站 MTR vs 紅磡站 bus).
- * Stops sharing a normalized name collapse into one hub.
- * Names are cleaned of stop codes and kept in en/tc/sc variants.
+ * Merge equivalent provider stops while protecting against distant stops that
+ * happen to share a name. IDs are deterministic across input ordering within
+ * the same geographic cell, which keeps saved references stable after refresh.
  */
 export function mergeStops(providerStops: Stop[]): StopHub[] {
   const hubs: StopHub[] = [];
-  const nameIndex = new Map<string, StopHub>();
+  const nameIndex = new Map<string, StopHub[]>();
 
   for (const s of providerStops) {
     const norm = normalizeName(`${s.name_en} ${s.name_tc}`);
     if (!norm) continue;
     const cleanEn = cleanStopName(s.name_en);
     const cleanTc = cleanStopName(s.name_tc);
-    const cleanSc = cleanStopName((s as any).name_sc);
+    const cleanSc = cleanStopName(s.name_sc || '');
+    const candidates = nameIndex.get(norm) || [];
+    const existing = candidates.find((hub) => canMerge(hub, s));
 
-    const existing = nameIndex.get(norm);
     if (existing) {
-      // best-effort: prefer a non-empty name variant from any member
       existing.name_en = firstNonEmpty([cleanEn], existing.name_en);
       existing.name_tc = firstNonEmpty([cleanTc], existing.name_tc);
       existing.name_sc = firstNonEmpty([cleanSc], existing.name_sc);
-      if (!existing.lat && s.lat) {
+      if (!hasCoordinates(existing) && hasCoordinates(s)) {
         existing.lat = s.lat;
         existing.lng = s.lng;
       }
-      if (
-        !existing.members.some(
-          (m) => m.provider === s.provider && m.stopId === s.stopId
-        )
-      ) {
+      if (!existing.members.some((m) => m.provider === s.provider && m.stopId === s.stopId)) {
         existing.members.push({ provider: s.provider, stopId: s.stopId });
+        existing.members.sort((a, b) => `${a.provider}:${a.stopId}`.localeCompare(`${b.provider}:${b.stopId}`));
       }
       continue;
     }
 
+    const key = hubKey(norm, s);
     const hub: StopHub = {
-      id: `hub-${hubs.length}`,
+      id: `hub-${stableHash(key)}`,
       name_en: cleanEn,
       name_tc: cleanTc,
       name_sc: cleanSc,
@@ -88,19 +113,17 @@ export function mergeStops(providerStops: Stop[]): StopHub[] {
       members: [{ provider: s.provider, stopId: s.stopId }],
     };
     hubs.push(hub);
-    nameIndex.set(norm, hub);
+    candidates.push(hub);
+    nameIndex.set(norm, candidates);
   }
 
-  return hubs;
+  return hubs.sort((a, b) => a.id.localeCompare(b.id));
 }
 
-/** Build provider→stop lookup and hub membership indexes for the graph builder. */
 export function buildLookups(hubs: StopHub[]) {
   const memberToHub = new Map<string, StopHub>();
   for (const hub of hubs) {
-    for (const m of hub.members) {
-      memberToHub.set(`${m.provider}:${m.stopId}`, hub);
-    }
+    for (const m of hub.members) memberToHub.set(`${m.provider}:${m.stopId}`, hub);
   }
   return memberToHub;
 }

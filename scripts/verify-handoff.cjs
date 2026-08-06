@@ -1,0 +1,48 @@
+#!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+
+const root = path.resolve(__dirname, '..');
+const required = [
+  'README.md',
+  'HANDOFF.md',
+  'CHANGELOG.md',
+  'app.json',
+  'eas.json',
+  'assets/icon.png',
+  'assets/favicon.png',
+  'src/components/JourneyModeChips.tsx',
+  'src/components/JourneyOptionCard.tsx',
+  'src/components/LiveJourneyPanel.tsx',
+  'docs/ARCHITECTURE.md',
+  'docs/PROJECT_STATUS.md',
+  'docs/DEPLOYMENT.md',
+  'docs/DATA_REFRESH.md',
+  'docs/IOS_HANDOFF.md',
+  'docs/KNOWN_LIMITATIONS.md',
+  'docs/VERIFICATION_REPORT.md',
+  'docs/AGENT_PROMPT.md',
+];
+
+const missing = required.filter((item) => !fs.existsSync(path.join(root, item)));
+const forbidden = ['node_modules', '.core-test-dist', 'dist'].filter((item) => fs.existsSync(path.join(root, item)));
+
+let gmbWarning = null;
+try {
+  const gmb = JSON.parse(fs.readFileSync(path.join(root, 'src/data/gmb.json'), 'utf8'));
+  const routeStop = Array.isArray(gmb.routeStops) ? gmb.routeStops[0] : null;
+  if (!routeStop || routeStop.sourceRouteId == null || routeStop.routeSeq == null || routeStop.stopSeq == null) {
+    gmbWarning = 'GMB snapshot is legacy. Run npm run data:refresh with internet before production deployment.';
+  }
+} catch (error) {
+  missing.push('valid src/data/gmb.json');
+}
+
+if (missing.length || forbidden.length) {
+  if (missing.length) console.error(`Missing required handoff files:\n- ${missing.join('\n- ')}`);
+  if (forbidden.length) console.error(`Remove generated directories before packaging:\n- ${forbidden.join('\n- ')}`);
+  process.exit(1);
+}
+
+console.log('Handoff structure verification passed.');
+if (gmbWarning) console.warn(`WARNING: ${gmbWarning}`);

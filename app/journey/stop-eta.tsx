@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { ALL_PROVIDERS } from '@/src/journey/providers';
 import type { ETA } from '@/src/journey/providers/types';
 import { COLORS, ETA_REFRESH_INTERVAL } from '@/src/utils/constants';
+import { formatPublicRouteCode } from '@/src/journey/providers/routeDisplay';
 
 function minsUntil(eta: string): number {
   if (!eta) return -1;
@@ -24,6 +25,8 @@ export default function StopEtaScreen() {
     stopId: string;
     name: string;
   }>();
+
+  const publicRoute = formatPublicRouteCode(provider, route);
 
   const [etas, setEtas] = useState<ETA[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -61,12 +64,12 @@ export default function StopEtaScreen() {
   return (
     <View style={styles.container}>
       <Stack.Screen
-        options={{ title: `${route} · ${provider}`, headerBackTitle: ' ' }}
+        options={{ title: `${publicRoute} · ${provider}`, headerBackTitle: ' ' }}
       />
       <View style={styles.header}>
         <Text style={styles.stopName} numberOfLines={1}>{name}</Text>
         <Text style={styles.subtitle}>
-          {t('providers.' + provider)} · {route}
+          {t('providers.' + provider)} · {publicRoute}
         </Text>
       </View>
 

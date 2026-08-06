@@ -1,15 +1,18 @@
 /**
- * Build-time data crawler for journey planner.
+ * Refresh static transit topology used by the local-first journey planner.
  *
- * CTB and GMB have no bulk stop-list endpoint, so we crawl their
- * route-stop topology + stop details once and snapshot to src/data/.
- * Run: node scripts/fetch-transit-data.js
+ * Run: npm run data:refresh
+ *
+ * The script performs network requests only at build/maintenance time. End
+ * users read the generated snapshots locally and call operator ETA endpoints
+ * directly for live arrivals.
  */
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const OUT_DIR = path.join(__dirname, '..', 'src', 'data');
-const CONCURRENCY = 10;
+const CONCURRENCY = 8;
+const RETRIES = 3;
 
 const ctbRoutesUrl = 'https://rt.data.gov.hk/v2/transport/citybus/route/ctb';
 const ctbStopUrl = (id) => `https://rt.data.gov.hk/v2/transport/citybus/stop/${id}`;
@@ -18,26 +21,43 @@ const ctbRouteStopUrl = (route, dir) =>
 
 const gmbRoutesUrl = 'https://data.etagmb.gov.hk/route';
 const gmbRouteUrl = (region, route) =>
-  `https://data.etagmb.gov.hk/route/${region}/${route}`;
-const gmbRouteStopUrl = (routeId, type) =>
-  `https://data.etagmb.gov.hk/route-stop/${routeId}/${type}`;
+  `https://data.etagmb.gov.hk/route/${region}/${encodeURIComponent(route)}`;
+const gmbRouteStopUrl = (routeId, routeSeq) =>
+  `https://data.etagmb.gov.hk/route-stop/${routeId}/${routeSeq}`;
+const gmbStopUrl = (stopId) => `https://data.etagmb.gov.hk/stop/${stopId}`;
 
-async function getJson(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${res.status} ${url}`);
-  return res.json();
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function getJson(url, attempt = 1) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error(`${response.status} ${url}`);
+    return await response.json();
+  } catch (error) {
+    if (attempt >= RETRIES) throw error;
+    await sleep(350 * 2 ** (attempt - 1));
+    return getJson(url, attempt + 1);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function mapLimit(items, limit, fn) {
   const results = new Array(items.length);
-  let idx = 0;
+  let index = 0;
   const workers = Array.from({ length: limit }, async () => {
-    while (idx < items.length) {
-      const i = idx++;
+    while (index < items.length) {
+      const current = index++;
       try {
-        results[i] = await fn(items[i], i);
-      } catch (e) {
-        results[i] = null;
+        results[current] = await fn(items[current], current);
+      } catch (error) {
+        console.warn(`Skipped item ${current}: ${error.message}`);
+        results[current] = null;
       }
     }
   });
@@ -45,171 +65,175 @@ async function mapLimit(items, limit, fn) {
   return results.filter(Boolean);
 }
 
-// ---------- CTB ----------
+function writeSnapshot(name, payload) {
+  fs.writeFileSync(
+    path.join(OUT_DIR, name),
+    `${JSON.stringify({
+      schemaVersion: 2,
+      generatedAt: new Date().toISOString(),
+      ...payload,
+    })}\n`
+  );
+}
+
 async function crawlCtb() {
-  const { data: rawRoutes } = await getJson(ctbRoutesUrl);
+  const { data: rawRoutes = [] } = await getJson(ctbRoutesUrl);
   console.log(`CTB routes: ${rawRoutes.length}`);
 
-  const routeStopByRoute = await mapLimit(rawRoutes, CONCURRENCY, async (r) => {
+  const topology = await mapLimit(rawRoutes, CONCURRENCY, async (route) => {
     const pair = {};
-    for (const dir of ['outbound', 'inbound']) {
+    for (const direction of ['outbound', 'inbound']) {
       try {
-        const { data } = await getJson(ctbRouteStopUrl(r.route, dir));
-        pair[dir] = data;
+        const response = await getJson(ctbRouteStopUrl(route.route, direction));
+        pair[direction] = response.data || [];
       } catch {
-        pair[dir] = [];
+        pair[direction] = [];
       }
     }
-    return { route: r.route, pair };
+    return { meta: route, pair };
   });
 
-  // Collect unique stop ids
-  const stopIds = new Set();
+  const routes = [];
   const routeStops = [];
-  for (const { route, pair } of routeStopByRoute) {
-    for (const dir of ['outbound', 'inbound']) {
-      const bound = dir === 'outbound' ? 'O' : 'I';
-      for (const rs of pair[dir] || []) {
-        stopIds.add(rs.stop);
+  const stopIds = new Set();
+  for (const { meta, pair } of topology) {
+    for (const direction of ['outbound', 'inbound']) {
+      const links = pair[direction] || [];
+      if (!links.length) continue;
+      const bound = direction === 'outbound' ? 'O' : 'I';
+      routes.push({
+        route: meta.route,
+        bound,
+        orig_en: bound === 'O' ? meta.orig_en || '' : meta.dest_en || '',
+        orig_tc: bound === 'O' ? meta.orig_tc || '' : meta.dest_tc || '',
+        dest_en: bound === 'O' ? meta.dest_en || '' : meta.orig_en || '',
+        dest_tc: bound === 'O' ? meta.dest_tc || '' : meta.orig_tc || '',
+      });
+      for (const link of links) {
+        stopIds.add(String(link.stop));
         routeStops.push({
-          route,
+          route: meta.route,
           bound,
-          seq: rs.seq,
-          stopId: rs.stop,
+          seq: Number(link.seq),
+          stopId: String(link.stop),
         });
       }
     }
   }
-  console.log(`CTB unique stops: ${stopIds.size}`);
 
-  // Bulk stop detail
-  const stops = await mapLimit([...stopIds], CONCURRENCY, async (id) => {
-    try {
-      const { data } = await getJson(ctbStopUrl(id));
-      return {
-        stopId: data.stop,
-        name_en: data.name_en || '',
-        name_tc: data.name_tc || '',
-        name_sc: data.name_sc || '',
-        lat: parseFloat(data.lat) || 0,
-        lng: parseFloat(data.long) || 0,
-      };
-    } catch {
-      return null;
-    }
+  const stops = await mapLimit([...stopIds], CONCURRENCY, async (stopId) => {
+    const response = await getJson(ctbStopUrl(stopId));
+    const stop = response.data || {};
+    return {
+      stopId: String(stop.stop || stopId),
+      name_en: stop.name_en || '',
+      name_tc: stop.name_tc || '',
+      name_sc: stop.name_sc || '',
+      lat: Number(stop.lat) || 0,
+      lng: Number(stop.long) || 0,
+    };
   });
 
-  const routes = rawRoutes
-    .filter((r) => r.route)
-    .map((r) => ({
-      route: r.route,
-      bound: 'O',
-      orig_en: r.orig_en || '',
-      orig_tc: r.orig_tc || '',
-      dest_en: r.dest_en || '',
-      dest_tc: r.dest_tc || '',
-    }));
-
-  fs.writeFileSync(
-    path.join(OUT_DIR, 'ctb.json'),
-    JSON.stringify({ routes, stops, routeStops })
-  );
-  console.log(`CTB snapshot: ${routes.length} routes, ${stops.length} stops, ${routeStops.length} links`);
+  writeSnapshot('ctb.json', { routes, stops, routeStops });
+  console.log(`CTB snapshot: ${routes.length} directions, ${stops.length} stops, ${routeStops.length} links`);
 }
 
-// ---------- GMB ----------
 async function crawlGmb() {
-  const { data } = await getJson(gmbRoutesUrl);
-  const regions = data.routes; // { HKI: [], KLN: [], NT: [] }
-  console.log(
-    `GMB routes: ${Object.entries(regions).map(([k, v]) => `${k}=${v.length}`).join(', ')}`
-  );
-
-  const routes = [];
-  const routeStops = [];
-  const stopMap = new Map(); // stopId -> {name_en, name_tc}
-
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
+  const response = await getJson(gmbRoutesUrl);
+  const regions = response?.data?.routes || {};
+  const routeRequests = [];
   for (const [region, routeCodes] of Object.entries(regions)) {
-    const details = await mapLimit(routeCodes, 3, async (code) => {
-      try {
-        const d = await getJson(gmbRouteUrl(region, code));
-        await sleep(50);
-        return d.data || [];
-      } catch {
-        return [];
-      }
-    });
-    for (const batch of details) {
-      for (const route of batch) {
-        for (const dir of route.directions || []) {
-          const bound = dir.route_seq === 2 ? 'I' : 'O';
-          const routeId = route.route_id;
-          const routeKey = `${route.route_code}-${bound}`;
-          routes.push({
-            route: routeKey,
-            bound,
-            orig_en: dir.orig_en || '',
-            orig_tc: dir.orig_tc || '',
-            dest_en: dir.dest_en || '',
-            dest_tc: dir.dest_tc || '',
-          });
-          // route-stop carries stop names
-          try {
-            const rsData = await getJson(gmbRouteStopUrl(routeId, 1));
-            await sleep(50);
-            for (const rs of rsData.data.route_stops || []) {
-              const sid = String(rs.stop_id);
-              if (!stopMap.has(sid)) {
-                stopMap.set(sid, {
-                  name_en: rs.name_en || '',
-                  name_tc: rs.name_tc || '',
-                  name_sc: rs.name_sc || '',
-                });
-              }
-              routeStops.push({
-                route: routeKey,
-                bound,
-                seq: rs.stop_seq,
-                stopId: sid,
-              });
-            }
-          } catch {
-            // skip route-stop for this direction
-          }
-        }
+    for (const routeCode of routeCodes) routeRequests.push({ region, routeCode });
+  }
+  console.log(`GMB route codes: ${routeRequests.length}`);
+
+  const routeDetails = await mapLimit(routeRequests, 3, async ({ region, routeCode }) => {
+    const detail = await getJson(gmbRouteUrl(region, routeCode));
+    await sleep(40);
+    return { region, routeCode, variations: detail.data || [] };
+  });
+
+  const directionRequests = [];
+  for (const detail of routeDetails) {
+    for (const variation of detail.variations) {
+      for (const direction of variation.directions || []) {
+        directionRequests.push({
+          region: detail.region,
+          routeCode: variation.route_code || detail.routeCode,
+          sourceRouteId: String(variation.route_id),
+          routeSeq: Number(direction.route_seq),
+          direction,
+        });
       }
     }
   }
 
-  // GMB stops: name from route-stop (coordinates unavailable in v1)
-  const stops = [...stopMap.entries()].map(([stopId, n]) => ({
-    stopId,
-    name_en: n.name_en,
-    name_tc: n.name_tc,
-    name_sc: n.name_sc,
-    lat: 0,
-    lng: 0,
-  }));
+  const topologies = await mapLimit(directionRequests, 4, async (item) => {
+    const payload = await getJson(gmbRouteStopUrl(item.sourceRouteId, item.routeSeq));
+    await sleep(35);
+    return { ...item, routeStops: payload?.data?.route_stops || [] };
+  });
 
-  fs.writeFileSync(
-    path.join(OUT_DIR, 'gmb.json'),
-    JSON.stringify({ routes, stops, routeStops })
-  );
-  console.log(`GMB snapshot: ${routes.length} routes, ${stops.length} stops, ${routeStops.length} links`);
+  const routes = [];
+  const routeStops = [];
+  const stopNames = new Map();
+  for (const item of topologies) {
+    const bound = item.routeSeq === 2 ? 'I' : 'O';
+    // Keep route variations distinct in the graph while hiding this internal
+    // suffix from passenger-facing copy via formatPublicRouteCode().
+    const routeKey = `${item.routeCode}~${item.sourceRouteId}-${bound}`;
+    routes.push({
+      route: routeKey,
+      bound,
+      orig_en: item.direction.orig_en || '',
+      orig_tc: item.direction.orig_tc || '',
+      dest_en: item.direction.dest_en || '',
+      dest_tc: item.direction.dest_tc || '',
+      sourceRouteId: item.sourceRouteId,
+      routeSeq: item.routeSeq,
+      region: item.region,
+    });
+    for (const stop of item.routeStops) {
+      const stopId = String(stop.stop_id);
+      stopNames.set(stopId, {
+        name_en: stop.name_en || '',
+        name_tc: stop.name_tc || '',
+        name_sc: stop.name_sc || '',
+      });
+      routeStops.push({
+        route: routeKey,
+        bound,
+        seq: Number(stop.stop_seq),
+        stopId,
+        sourceRouteId: item.sourceRouteId,
+        routeSeq: item.routeSeq,
+        stopSeq: Number(stop.stop_seq),
+      });
+    }
+  }
+
+  const stops = await mapLimit([...stopNames.entries()], CONCURRENCY, async ([stopId, names]) => {
+    const payload = await getJson(gmbStopUrl(stopId));
+    const wgs84 = payload?.data?.coordinates?.wgs84 || {};
+    return {
+      stopId,
+      ...names,
+      lat: Number(wgs84.latitude) || 0,
+      lng: Number(wgs84.longitude) || 0,
+    };
+  });
+
+  writeSnapshot('gmb.json', { routes, stops, routeStops });
+  console.log(`GMB snapshot: ${routes.length} directions, ${stops.length} stops, ${routeStops.length} links`);
 }
 
-// ---------- MTR stations CSV ----------
 async function crawlMtr() {
-  const url =
-    'https://opendata.mtr.com.hk/data/mtr_lines_and_stations.csv';
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`MTR CSV ${res.status}`);
-  const csv = await res.text();
+  const url = 'https://opendata.mtr.com.hk/data/mtr_lines_and_stations.csv';
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`MTR CSV ${response.status}`);
+  const csv = await response.text();
   fs.writeFileSync(path.join(OUT_DIR, 'mtr_stations.csv'), csv);
-  const lines = csv.trim().split('\n').slice(1);
-  console.log(`MTR CSV saved: ${lines.length} rows`);
+  console.log(`MTR CSV saved: ${csv.trim().split('\n').length - 1} rows`);
 }
 
 async function main() {
@@ -217,10 +241,10 @@ async function main() {
   await crawlCtb();
   await crawlGmb();
   await crawlMtr();
-  console.log('Done.');
+  console.log('Transit snapshots refreshed.');
 }
 
-main().catch((e) => {
-  console.error('FAILED:', e.message);
+main().catch((error) => {
+  console.error('FAILED:', error.stack || error.message);
   process.exit(1);
 });

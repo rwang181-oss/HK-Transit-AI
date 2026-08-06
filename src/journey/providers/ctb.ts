@@ -5,8 +5,7 @@ import type {
   RouteStopLink,
   ETA,
 } from './types';
-
-// Static snapshot produced by scripts/fetch-transit-data.js
+import { fetchJson } from './http';
 import ctbData from '@/src/data/ctb.json';
 
 const API_BASE = 'https://rt.data.gov.hk/v2/transport/citybus';
@@ -18,36 +17,54 @@ interface CtbSnapshot {
 }
 
 const data = ctbData as unknown as CtbSnapshot;
-
-// Pre-build route+bound → links index for O(1) lookups
 const routeStopIndex = new Map<string, RouteStopLink[]>();
 for (const rs of data.routeStops) {
   const key = `${rs.route}:${rs.bound}`;
   if (!routeStopIndex.has(key)) routeStopIndex.set(key, []);
   routeStopIndex.get(key)!.push(rs);
 }
+for (const links of routeStopIndex.values()) links.sort((a, b) => a.seq - b.seq);
 
-async function etaJson(url: string): Promise<any> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`CTB ETA ${res.status} ${url}`);
-  return res.json();
+function completeRouteDirections(): Route[] {
+  const routeMeta = new Map<string, Route>();
+  for (const route of data.routes) routeMeta.set(route.route, route);
+  const result: Route[] = [];
+  const seen = new Set<string>();
+
+  for (const key of routeStopIndex.keys()) {
+    const [routeCode, boundValue] = key.split(':');
+    const bound = boundValue as 'O' | 'I';
+    const meta = routeMeta.get(routeCode);
+    if (!meta) continue;
+    const id = `${routeCode}:${bound}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    result.push({
+      ...meta,
+      route: routeCode,
+      bound,
+      orig_en: bound === 'O' ? meta.orig_en : meta.dest_en,
+      orig_tc: bound === 'O' ? meta.orig_tc : meta.dest_tc,
+      dest_en: bound === 'O' ? meta.dest_en : meta.orig_en,
+      dest_tc: bound === 'O' ? meta.dest_tc : meta.orig_tc,
+      provider: 'CTB',
+    });
+  }
+  return result;
 }
 
 export const ctbProvider: TransitProvider = {
   id: 'CTB',
 
   async fetchRoutes(): Promise<Route[]> {
-    return data.routes.map((r) => ({ ...r, provider: 'CTB' as const }));
+    return completeRouteDirections();
   },
 
   async fetchStops(): Promise<Stop[]> {
     return data.stops.map((s) => ({ ...s, provider: 'CTB' as const }));
   },
 
-  async fetchRouteStops(
-    route: string,
-    bound: 'O' | 'I'
-  ): Promise<RouteStopLink[]> {
+  async fetchRouteStops(route: string, bound: 'O' | 'I'): Promise<RouteStopLink[]> {
     return (routeStopIndex.get(`${route}:${bound}`) || []).map((rs) => ({
       ...rs,
       provider: 'CTB' as const,
@@ -55,15 +72,22 @@ export const ctbProvider: TransitProvider = {
   },
 
   async fetchETA(stopId: string, route: string): Promise<ETA[]> {
-    const { data: raw } = await etaJson(
-      `${API_BASE}/eta/ctb/${stopId}/${route}`
+    const payload = await fetchJson<any>(
+      `${API_BASE}/eta/ctb/${stopId}/${route}`,
+      { timeoutMs: 7_000 }
     );
-    return (raw || []).map((e: any) => ({
-      route: e.route,
-      bound: e.dir,
-      stopId,
-      eta: e.eta,
-      provider: 'CTB' as const,
-    }));
+    return (payload?.data || [])
+      .filter((entry: any) => entry?.eta)
+      .map((entry: any) => ({
+        route: entry.route,
+        bound: entry.dir,
+        stopId,
+        eta: entry.eta,
+        dest_en: entry.dest_en || '',
+        dest_tc: entry.dest_tc || '',
+        provider: 'CTB' as const,
+        remark_en: entry.rmk_en || '',
+        remark_tc: entry.rmk_tc || '',
+      }));
   },
 };

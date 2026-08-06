@@ -1,6 +1,6 @@
 {
   "name": "hk-transit-ai",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
@@ -10,7 +10,13 @@
     "build:web": "npx expo export --platform web && node scripts/post-build.js",
     "deploy": "npm run build:web && npx gh-pages -d dist -m \"deploy: web build\"",
     "test": "jest",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test:core": "node scripts/run-core-tests.cjs",
+    "verify:source": "node scripts/verify-source.cjs",
+    "verify:handoff": "node scripts/verify-handoff.cjs",
+    "verify": "npm run test:core && npm run verify:types && npm run verify:source && npm run verify:handoff",
+    "data:refresh": "node scripts/fetch-transit-data.js",
+    "verify:types": "node scripts/verify-types.cjs"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",

@@ -8,6 +8,7 @@ import type {
 
 // Static snapshot produced by scripts/fetch-transit-data.js
 import mtrRowsJson from '@/src/data/mtr_stations.json';
+import { fetchJson } from './http';
 
 const API = 'https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php';
 
@@ -38,9 +39,7 @@ function directionRows(line: string, direction: string) {
 }
 
 async function scheduleJson(line: string, sta: string): Promise<any> {
-  const res = await fetch(`${API}?line=${line}&sta=${sta}`);
-  if (!res.ok) throw new Error(`MTR ETA ${res.status}`);
-  return res.json();
+  return fetchJson(`${API}?line=${line}&sta=${sta}`, { timeoutMs: 7_000 });
 }
 
 export const mtrProvider: TransitProvider = {

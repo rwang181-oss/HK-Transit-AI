@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "rootDir": "src",
+    "outDir": ".core-test-dist",
+    "types": [],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    }
+  },
+  "include": [
+    "src/journey/providers/types.ts",
+    "src/journey/graph/stopMerger.ts",
+    "src/journey/graph/travelTime.ts",
+    "src/journey/comfort/**/*.ts",
+    "src/journey/realtime/etaEstimator.ts",
+    "src/journey/providers/gmbParser.ts",
+    "src/journey/realtime/departureSelector.ts",
+    "src/journey/realtime/navigationTiming.ts",
+    "src/journey/providers/routeDisplay.ts"
+  ]
+}

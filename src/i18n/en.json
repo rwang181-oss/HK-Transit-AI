@@ -1,15 +1,16 @@
 {
-  "appName": "HK Transit",
+  "appName": "HK Transit AI",
   "home": {
-    "title": "HK Transit",
-    "emptyTitle": "Welcome to HK Transit",
+    "title": "HK Transit AI",
+    "cityLabel": "Made for Hong Kong",
+    "emptyTitle": "Welcome to HK Transit AI",
     "emptySubtitle": "Add your favorite routes to get started",
     "goToSearch": "Search Routes",
     "loading": "Loading...",
     "error": "Unable to load ETA data"
   },
   "search": {
-    "title": "Search",
+    "title": "Routes",
     "placeholder": "Enter route, e.g. 1A",
     "noResults": "No routes found",
     "direction": "Direction",
@@ -18,14 +19,14 @@
   },
   "eta": {
     "title": "Route {{route}}",
-    "nextBus": "Next bus",
+    "nextBus": "Next service",
     "min": "min",
     "arriving": "Arriving",
-    "noETA": "No ETA data available",
+    "noETA": "No live ETA available",
     "refreshingIn": "Refreshing in {{seconds}}s"
   },
   "nearby": {
-    "title": "Nearby Stops",
+    "title": "Nearby",
     "permissionDenied": "Location permission is needed to show nearby stops",
     "grantPermission": "Grant Permission",
     "loading": "Finding nearby stops...",
@@ -34,7 +35,7 @@
     "routes": "Routes"
   },
   "favorites": {
-    "title": "Favorites",
+    "title": "Saved",
     "routes": "Favorite Routes",
     "stops": "Favorite Stops",
     "emptyRoutes": "No favorite routes yet",
@@ -42,18 +43,112 @@
   },
   "journey": {
     "title": "Journey",
+    "heroTitle": "A calmer way across Hong Kong.",
+    "heroSubtitle": "Enter a destination and compare faster, more comfortable, rain-aware and sun-aware public transport journeys.",
     "from": "From",
     "to": "To",
-    "fromPlaceholder": "My location or a station...",
-    "toPlaceholder": "Where are you going?",
+    "fromPlaceholder": "Current location or starting point",
+    "toPlaceholder": "Where do you want to go?",
+    "myLocation": "My location",
+    "mapPoint": "Selected map point",
     "swap": "Swap",
     "plan": "Plan Route",
+    "planComfortRoute": "Find comfortable routes",
     "fastest": "Fastest",
     "direct": "Direct",
     "transfer": "{{count}} transfer",
-    "noResult": "No route found",
+    "noResult": "No practical route was found",
+    "noResultHelp": "Try a nearby destination, choose another map point, or refresh the transport data.",
     "estimates": "Times are estimates",
-    "loading": "Building route map..."
+    "loading": "Building your journey options",
+    "loadingSubtitle": "Combining walking, live departure information, transfers and weather comfort.",
+    "loadingData": "Preparing Hong Kong transport data...",
+    "dataError": "The journey data could not be prepared",
+    "cachedDataNotice": "Some network data is unavailable, so cached transport data is being used.",
+    "searchOrTapMap": "Search for a place or tap the map to set this point.",
+    "searching": "Searching Hong Kong places...",
+    "localFirst": "Local-first route planning",
+    "promiseWeather": "Weather-aware choices",
+    "promiseRealtime": "Live departure checks",
+    "promiseLocal": "No project server",
+    "routeOptions": "Journey options",
+    "choosePreference": "What matters today?",
+    "preferenceHelper": "A dot marks the smart suggestion",
+    "modes": {
+      "recommended": "Comfort pick",
+      "fastest": "Fastest",
+      "shade": "Less sun",
+      "rain": "Less rain",
+      "indoor": "More indoor"
+    },
+    "optionsFound_one": "{{count}} route option",
+    "optionsFound_other": "{{count}} route options",
+    "sortedBy": "Sorted by {{mode}}",
+    "arrive": "Arrive",
+    "outdoorEstimate": "Outdoor ≈ {{minutes}} min",
+    "indoorEstimate": "Indoor transit ≈ {{minutes}} min",
+    "estimatedComfort": "Comfort is an estimate",
+    "reasons": {
+      "lessWalking": "Less walking",
+      "moreIndoorTransit": "More time inside the MTR network",
+      "noTransfer": "No transfer",
+      "shortWait": "Shorter expected wait",
+      "lowerRainExposure": "Lower estimated rain exposure",
+      "lowerSunExposure": "Lower estimated sun exposure",
+      "balancedJourney": "Balanced time and walking"
+    },
+    "etaStatus": {
+      "live": "Live departure",
+      "estimated": "Estimated wait",
+      "unavailable": "Live ETA unavailable"
+    },
+    "walkToBoard": "Walk about {{minutes}} min to {{station}}",
+    "walkToDestination": "Walk about {{minutes}} min to the destination",
+    "transferStep": "Transfer walk / buffer about {{minutes}} min",
+    "viewLiveEta": "View stop departures",
+    "showDetails": "Details",
+    "hideDetails": "Hide details",
+    "approximateGeometry": "Route line is an approximate waypoint path",
+    "estimateTitle": "About these estimates",
+    "estimateDisclosure": "Initial walking and arrival times use local distance estimates and public transport data. Once navigation starts, foreground GPS samples recalibrate the remaining walking time. Covered, shaded and indoor percentages remain proxy estimates until verified pedestrian-segment data is installed.",
+    "nativeMapTitle": "Native map handoff ready",
+    "nativeMapBody": "The shared journey engine is active. The iOS handoff explains how to replace this fallback with Apple MapKit.",
+    "openAppleMaps": "Open in Apple Maps",
+    "nextServiceEstimate": "The immediate service is likely unreachable; timing uses the next-service estimate."
+  },
+  "navigation": {
+    "start": "Start live journey",
+    "stop": "Stop tracking",
+    "live": "LIVE JOURNEY",
+    "minutesRemaining": "min remaining",
+    "walkingSpeed": "Walking speed",
+    "recalibrated": "ETA recalibrated",
+    "collectingSpeed": "Collecting movement samples",
+    "dynamicWait": "Estimated wait after reaching the stop: {{minutes}} min",
+    "nextDepartureAdjusted": "Your speed suggests the selected service may be missed. The arrival time now uses an estimated following service.",
+    "departureStatus": "Departure: {{status}}",
+    "nextStage": "Move to next stage",
+    "foregroundOnly": "Live speed recalibration runs only while the app is open in this web/native MVP.",
+    "phases": {
+      "idle": "Not started",
+      "walkingToTransit": "Walking to the boarding point",
+      "waiting": "Waiting for the service",
+      "riding": "On public transport",
+      "walkingToDestination": "Walking to the destination",
+      "arrived": "Arrived"
+    },
+    "errors": {
+      "locationPermissionDenied": "Location permission was not granted.",
+      "locationTrackingFailed": "Live location tracking could not start."
+    }
+  },
+  "weather": {
+    "rain": {
+      "none": "Dry",
+      "light": "Light rain",
+      "moderate": "Rain",
+      "heavy": "Heavy rain"
+    }
   },
   "providers": {
     "KMB": "KMB",
