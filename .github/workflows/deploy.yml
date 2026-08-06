@@ -45,16 +45,79 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
+      actions: read
       pages: write
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Deploy and wait for GitHub Pages
+        uses: actions/github-script@v8
         with:
-          timeout: 1800000
-          error_count: 40
-          reporting_interval: 5000
+          github-token: ${{ github.token }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const runId = context.runId;
+            const sha = context.sha;
+
+            const idTokenResponse = await fetch(
+              `${process.env.ACTIONS_ID_TOKEN_REQUEST_URL}&audience=pages.github.com`,
+              {
+                headers: {
+                  Authorization: `bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}`,
+                },
+              },
+            );
+            if (!idTokenResponse.ok) {
+              throw new Error(`OIDC token request failed: ${idTokenResponse.status}`);
+            }
+            const { value: oidcToken } = await idTokenResponse.json();
+
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner,
+              repo,
+              run_id: runId,
+              per_page: 100,
+            });
+            const artifact = artifacts.data.artifacts.find(
+              (item) => item.name === 'github-pages' && !item.expired,
+            );
+            if (!artifact) {
+              throw new Error('github-pages artifact not found');
+            }
+
+            await github.request('POST /repos/{owner}/{repo}/pages/deployments', {
+              owner,
+              repo,
+              artifact_id: artifact.id,
+              pages_build_version: sha,
+              oidc_token: oidcToken,
+              headers: {
+                'X-GitHub-Api-Version': '2022-11-28',
+              },
+            });
+
+            const deadline = Date.now() + 30 * 60 * 1000;
+            while (Date.now() < deadline) {
+              const response = await github.request(
+                'GET /repos/{owner}/{repo}/pages/deployments/{pages_deployment_id}',
+                {
+                  owner,
+                  repo,
+                  pages_deployment_id: sha,
+                  headers: {
+                    'X-GitHub-Api-Version': '2022-11-28',
+                  },
+                },
+              );
+              const status = response.data.status;
+              core.info(`Pages status: ${status}`);
+              if (status === 'succeed') return;
+              if (status === 'failed') {
+                throw new Error('GitHub Pages deployment failed');
+              }
+              await new Promise((resolve) => setTimeout(resolve, 5000));
+            }
+            throw new Error('GitHub Pages deployment did not finish within 30 minutes');
