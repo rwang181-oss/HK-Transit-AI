@@ -41,6 +41,41 @@ jobs:
           echo 'effe117f9717f819a991c8b894edea1894c106149846cd21e1ed45f0127e31be  /tmp/mobile-update.patch' | sha256sum -c -
           git apply --check /tmp/mobile-update.patch
           git apply --index /tmp/mobile-update.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/verify-source.cjs')
+          source = path.read_text()
+          old = """let failures = 0;
+          let typescript;
+          try {
+            const globalRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim();
+            typescript = require(path.join(globalRoot, 'typescript'));
+          } catch (error) {
+            console.error('Unable to load the globally installed TypeScript parser:', error.message);
+            process.exit(1);
+          }
+          """
+          new = """let failures = 0;
+          let typescript;
+          try {
+            typescript = require('typescript');
+          } catch (localError) {
+            try {
+              const globalRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim();
+              typescript = require(path.join(globalRoot, 'typescript'));
+            } catch (globalError) {
+              console.error(
+                'Unable to load the TypeScript parser from local or global dependencies:',
+                globalError.message
+              );
+              process.exit(1);
+            }
+          }
+          """
+          if old not in source:
+              raise SystemExit('Expected TypeScript loader block was not found')
+          path.write_text(source.replace(old, new))
+          PY
           rm -rf .update .github/workflows/apply-mobile-update.yml
 
       - name: Install dependencies
@@ -56,7 +91,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name 'github-actions[bot]]'
+          git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           git commit -m 'feat: optimize mobile journey performance and navigation'
