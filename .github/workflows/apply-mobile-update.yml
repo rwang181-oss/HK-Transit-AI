@@ -8,13 +8,17 @@ on:
       - '.github/workflows/apply-mobile-update.yml'
   workflow_dispatch:
 
+concurrency:
+  group: mobile-performance-update
+  cancel-in-progress: true
+
 permissions:
   contents: write
   actions: write
 
 jobs:
   verify-and-publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
       - name: Checkout update branch
