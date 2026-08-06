@@ -87,3 +87,7 @@ node scripts/fetch-transit-data.js
 - Personal commute assistant
 - Wait time prediction (XGBoost / LSTM)
 - Natural language transport queries
+
+## Developer Notes / 開發者筆記
+
+See [`docs/lessons-learned.md`](docs/lessons-learned.md) for a comprehensive record of all technical challenges, debugging processes, and solutions encountered during development — designed to help future maintainers get up to speed quickly.
