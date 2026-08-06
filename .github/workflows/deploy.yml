@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Deploy HK Transit AI V2
 
 on:
   push:
@@ -11,17 +11,18 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: github-pages
   cancel-in-progress: true
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Checkout
+      - name: Checkout V2 source
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -29,20 +30,21 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
-      - name: Refresh transit data
-        run: npm run data:refresh
+      - name: Verify source
+        run: npm run verify
 
       - name: Build web
         run: npm run build:web
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
 
-      - name: Upload artifact
+      - name: Upload web build
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
