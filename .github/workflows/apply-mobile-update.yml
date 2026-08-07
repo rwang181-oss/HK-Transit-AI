@@ -1,5 +1,5 @@
 name: Apply mobile performance update
-# Retry verified publication after GitHub Actions incident mitigation.
+# Fix Expo web bundler configuration and publish the verified update.
 
 on:
   push:
@@ -46,9 +46,11 @@ jobs:
           git apply --check /tmp/mobile-update.patch
           git apply --index /tmp/mobile-update.patch
           python3 - <<'PY'
+          import json
           from pathlib import Path
-          path = Path('scripts/verify-source.cjs')
-          source = path.read_text()
+
+          source_path = Path('scripts/verify-source.cjs')
+          source = source_path.read_text()
           old = """let failures = 0;
           let typescript;
           try {
@@ -78,7 +80,17 @@ jobs:
           """
           if old not in source:
               raise SystemExit('Expected TypeScript loader block was not found')
-          path.write_text(source.replace(old, new))
+          source_path.write_text(source.replace(old, new))
+
+          app_path = Path('app.json')
+          app = json.loads(app_path.read_text())
+          app.setdefault('expo', {}).setdefault('web', {})['bundler'] = 'metro'
+          app_path.write_text(json.dumps(app, ensure_ascii=False, indent=2) + '\n')
+
+          package_path = Path('package.json')
+          package = json.loads(package_path.read_text())
+          package['scripts']['build:web'] = 'expo export --platform web && node scripts/post-build.js'
+          package_path.write_text(json.dumps(package, ensure_ascii=False, indent=2) + '\n')
           PY
           rm -rf .update .github/workflows/apply-mobile-update.yml
 
