@@ -280,33 +280,23 @@ function buildJourneyIndex(topologies, options = {}) {
   }
   for (const ids of Object.values(cells)) ids.sort();
 
+  // Compact transfer-point index. The previous route-pair Cartesian expansion
+  // produced a 100+ MB file at busy interchange hubs. Each route now stores
+  // only the hubs where another service is available; the runtime planner
+  // reads the target services from hub.services and bounds those expansions.
   const routeNeighbors = {};
+  let transferPointCount = 0;
   for (const routeKey of Object.keys(routes)) routeNeighbors[routeKey] = [];
   for (const hub of hubs) {
     const services = hub.services.filter((service) => routes[service.routeKey]);
-    for (const from of services) {
-      const seen = new Set();
-      for (const to of services) {
-        if (from.routeKey === to.routeKey) continue;
-        const signature = `${to.routeKey}|${hub.id}|${from.seq}|${to.seq}`;
-        if (seen.has(signature)) continue;
-        seen.add(signature);
-        routeNeighbors[from.routeKey].push({
-          toRouteKey: to.routeKey,
-          hubId: hub.id,
-          fromSeq: from.seq,
-          toSeq: to.seq,
-        });
-      }
+    if (services.length < 2) continue;
+    for (const service of services) {
+      routeNeighbors[service.routeKey].push({ hubId: hub.id, seq: service.seq });
+      transferPointCount += 1;
     }
   }
-  for (const neighbors of Object.values(routeNeighbors)) {
-    neighbors.sort((a, b) =>
-      a.toRouteKey.localeCompare(b.toRouteKey) ||
-      a.fromSeq - b.fromSeq ||
-      a.toSeq - b.toSeq ||
-      a.hubId.localeCompare(b.hubId)
-    );
+  for (const points of Object.values(routeNeighbors)) {
+    points.sort((a, b) => a.seq - b.seq || a.hubId.localeCompare(b.hubId));
   }
 
   const meta = {
@@ -315,6 +305,7 @@ function buildJourneyIndex(topologies, options = {}) {
     hubCount: hubs.length,
     routeCount: Object.keys(routes).length,
     cellCount: Object.keys(cells).length,
+    transferPointCount,
   };
 
   return { meta, hubs, cells, routes, routeNeighbors };
