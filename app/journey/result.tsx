@@ -18,10 +18,9 @@ import {
 } from '@/src/stores/journeyStore';
 import { useWeatherStore } from '@/src/stores/weatherStore';
 import { useNavigationStore } from '@/src/stores/navigationStore';
-import type { JourneyMode } from '@/src/journey/model/types';
+import type { JourneyPolicy } from '@/src/journey/model/types';
 import { TransitMap } from '@/src/components/TransitMap';
 import { JourneyModeChips } from '@/src/components/JourneyModeChips';
-import { smartModeForWeather } from '@/src/journey/comfort/comfortEngine';
 import { JourneyOptionCard } from '@/src/components/JourneyOptionCard';
 import { NavigationModal } from '@/src/components/NavigationModal';
 import { COLORS } from '@/src/utils/constants';
@@ -35,8 +34,32 @@ function safeDecode(value: string | undefined): string {
   }
 }
 
+const POLICY_HINTS: Record<JourneyPolicy, { en: string; zh: string }> = {
+  recommended: {
+    en: 'Fewer transfers come first; a direct route stays ahead unless it is over 15 minutes slower.',
+    zh: '先比較換乘次數；直達路線除非慢超過 15 分鐘，否則優先顯示。',
+  },
+  direct: {
+    en: 'All direct services are placed before routes requiring a transfer.',
+    zh: '所有直達路線會排在需要換乘的路線之前。',
+  },
+  oneTransfer: {
+    en: 'Routes requiring more than one transfer are hidden.',
+    zh: '隱藏需要換乘兩次或以上的路線。',
+  },
+  fastest: {
+    en: 'Sorted by the complete estimated journey time.',
+    zh: '按完整預計行程時間排序。',
+  },
+  lessWalking: {
+    en: 'Sorted by pedestrian-route distance, then transfers and total time.',
+    zh: '按步行道路距離排序，再比較換乘次數及總時間。',
+  },
+};
+
 export default function JourneyResultScreen() {
   const { t, i18n } = useTranslation();
+  const language = i18n.language === 'en' ? 'en' : 'zh';
   const router = useRouter();
   const params = useLocalSearchParams<{
     fromLat: string;
@@ -47,7 +70,7 @@ export default function JourneyResultScreen() {
     toName: string;
   }>();
   const { status, error, loadData, getHubById } = useJourneyStore();
-  const { weather, refresh: refreshWeather } = useWeatherStore();
+  const refreshWeather = useWeatherStore((state) => state.refresh);
   const startNavigation = useNavigationStore((state) => state.start);
   const navigationPhase = useNavigationStore((state) => state.phase);
   const navigationError = useNavigationStore((state) => state.error);
@@ -64,7 +87,7 @@ export default function JourneyResultScreen() {
   }), [params.toLat, params.toLng, params.toName]);
 
   const [options, setOptions] = useState<JourneyOption[]>([]);
-  const [mode, setMode] = useState<JourneyMode>('recommended');
+  const [policy, setPolicy] = useState<JourneyPolicy>('recommended');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [planning, setPlanning] = useState(true);
@@ -84,12 +107,16 @@ export default function JourneyResultScreen() {
       if (cancelled) return;
       try {
         const currentWeather = useWeatherStore.getState().weather;
-        const planned = await useJourneyStore.getState().plan(fromPoint, toPoint, currentWeather);
+        const planned = await useJourneyStore.getState().plan(
+          fromPoint,
+          toPoint,
+          currentWeather,
+          'recommended'
+        );
         if (cancelled) return;
         setOptions(planned);
-        const suggestedMode = smartModeForWeather(currentWeather);
-        setMode(suggestedMode);
-        const sorted = sortJourneyOptions(planned, suggestedMode);
+        setPolicy('recommended');
+        const sorted = sortJourneyOptions(planned, 'recommended');
         setSelectedId(sorted[0]?.id || null);
         setExpandedId(sorted[0]?.id || null);
       } catch (caught) {
@@ -103,8 +130,9 @@ export default function JourneyResultScreen() {
     };
   }, [fromPoint.lat, fromPoint.lng, toPoint.lat, toPoint.lng, planAttempt, loadData, refreshWeather]);
 
-  const ranked = useMemo(() => sortJourneyOptions(options, mode), [options, mode]);
+  const ranked = useMemo(() => sortJourneyOptions(options, policy), [options, policy]);
   const selected = ranked.find((option) => option.id === selectedId) || ranked[0] || null;
+  const hasDirect = options.some((option) => option.itinerary.isDirect);
 
   useEffect(() => {
     if (ranked.length && !ranked.some((option) => option.id === selectedId)) {
@@ -142,6 +170,14 @@ export default function JourneyResultScreen() {
     setExpandedId(option.id);
   };
 
+  const changePolicy = (next: JourneyPolicy) => {
+    setPolicy(next);
+    const nextRanked = sortJourneyOptions(options, next);
+    setSelectedId(nextRanked[0]?.id || null);
+    setExpandedId(nextRanked[0]?.id || null);
+    setShowRouteMap(false);
+  };
+
   const start = async (option: JourneyOption) => {
     selectOption(option);
     setNavigationVisible(true);
@@ -165,8 +201,8 @@ export default function JourneyResultScreen() {
   const center = selected
     ? selected.geometry[Math.floor(selected.geometry.length / 2)] || fromPoint
     : { lat: (fromPoint.lat + toPoint.lat) / 2, lng: (fromPoint.lng + toPoint.lng) / 2 };
-
   const navigationActive = navigationPhase !== 'idle' || Boolean(navigationError);
+  const directUnavailable = policy === 'direct' && !hasDirect;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -209,7 +245,16 @@ export default function JourneyResultScreen() {
               <Text style={styles.countMeta}>{t('journey.selectRouteHint')}</Text>
             </View>
 
-            <JourneyModeChips value={mode} onChange={setMode} weather={weather} />
+            <JourneyModeChips value={policy} onChange={changePolicy} />
+            <View style={[styles.policyNote, directUnavailable && styles.policyWarning]}>
+              <Text style={[styles.policyNoteText, directUnavailable && styles.policyWarningText]}>
+                {directUnavailable
+                  ? language === 'en'
+                    ? 'No direct route was found within the walking range. The best low-transfer alternatives are shown.'
+                    : '步行範圍內找不到直達路線，現顯示換乘較少的替代方案。'
+                  : POLICY_HINTS[policy][language]}
+              </Text>
+            </View>
 
             {ranked.length === 0 ? (
               <View style={styles.emptyCard}>
@@ -222,7 +267,7 @@ export default function JourneyResultScreen() {
                   key={option.id}
                   option={option}
                   rank={index}
-                  mode={mode}
+                  policy={policy}
                   selected={selected?.id === option.id}
                   expanded={expandedId === option.id}
                   hubName={hubName}
@@ -254,7 +299,11 @@ export default function JourneyResultScreen() {
                   paths={[{ id: selected.id, points: selected.geometry, color: COLORS.hkRed }]}
                   height={270}
                 />
-                <Text style={styles.mapNote}>{t('journey.approximateGeometry')}</Text>
+                <Text style={styles.mapNote}>
+                  {selected.walkingSource === 'routed'
+                    ? language === 'en' ? 'Walking sections follow the pedestrian road network.' : '步行部分按行人道路網絡顯示。'
+                    : t('journey.approximateGeometry')}
+                </Text>
               </View>
             ) : null}
           </View>
@@ -300,6 +349,10 @@ const styles = StyleSheet.create({
   countRow: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 3, flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 },
   countTitle: { color: COLORS.textPrimary, fontSize: 15, fontWeight: '800' },
   countMeta: { color: COLORS.textTertiary, fontSize: 10, textAlign: 'right', flex: 1 },
+  policyNote: { marginHorizontal: 14, marginBottom: 9, paddingHorizontal: 11, paddingVertical: 8, borderRadius: 10, backgroundColor: '#EAF2FF' },
+  policyNoteText: { color: COLORS.textSecondary, fontSize: 10, lineHeight: 15 },
+  policyWarning: { backgroundColor: '#FFF4E5' },
+  policyWarningText: { color: COLORS.etaWarning },
   emptyCard: { marginHorizontal: 12, marginTop: 8, borderRadius: 17, backgroundColor: COLORS.bgCard, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', padding: 26 },
   emptyTitle: { color: COLORS.textPrimary, fontSize: 16, fontWeight: '700' },
   emptyText: { color: COLORS.textSecondary, fontSize: 11, lineHeight: 17, textAlign: 'center', marginTop: 6 },
