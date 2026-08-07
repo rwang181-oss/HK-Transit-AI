@@ -17,6 +17,7 @@ for (const testFile of [
   'tests/core/walking-router.test.cjs',
   'tests/core/version-monitor.test.cjs',
   'tests/core/journey-index.test.cjs',
+  'tests/core/journey-index-cache.test.cjs',
   'tests/core/progressive-planner.test.cjs',
   'tests/core/progressive-refine.test.cjs',
   'tests/core/progressive-session.test.cjs',
