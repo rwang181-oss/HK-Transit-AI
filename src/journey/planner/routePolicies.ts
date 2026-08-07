@@ -16,6 +16,7 @@ function compareRecommended(a: PolicyOption, b: PolicyOption): number {
     const transfer = a.itinerary.isDirect ? b : a;
     const directWins = direct.totalMinutes <= transfer.totalMinutes + 15;
     if (directWins) return a.itinerary.isDirect ? -1 : 1;
+    return a.itinerary.isDirect ? 1 : -1;
   }
 
   if (a.itinerary.transfers !== b.itinerary.transfers) {
