@@ -12,7 +12,8 @@ const result = read('app/journey/result.tsx');
 const map = read('src/components/TransitMap.tsx');
 const html = read('app/+html.tsx');
 const layout = read('app/_layout.tsx');
-const journeyStore = read('src/stores/journeyStore.ts');
+const providerIndex = read('src/journey/providers/index.ts');
+const kmbApi = read('src/services/kmbAPI.ts');
 const versionMonitor = read('src/utils/versionMonitor.ts');
 const mapPickerPath = path.join(root, 'app/journey/map-picker.tsx');
 
@@ -26,8 +27,9 @@ expect(home.includes('styles.fixedAction'), 'home must keep the primary journey 
 expect(home.indexOf('styles.fixedAction') > home.lastIndexOf('</ScrollView>'), 'fixed journey action must appear after the ScrollView');
 expect(!home.includes('heroSubtitle'), 'home must not render the verbose marketing subtitle');
 expect(!home.includes('promiseRow'), 'home must not render the three promotional promise cards');
-expect(journeyStore.includes('loadJourneyDataSources'), 'production journey store must use provider-isolated data loading');
-expect(!journeyStore.includes('getStaticProviders'), 'journey store must not fail all static providers through one Promise.all import');
+expect(providerIndex.includes('Promise.allSettled'), 'static provider imports must degrade independently');
+expect(kmbApi.includes('resolveKmbTopology'), 'KMB API must use layered local-first topology resolution');
+expect(kmbApi.includes('kmbSnapshot'), 'KMB API must keep the bundled topology fallback');
 expect(versionMonitor.includes("'visibilitychange'"), 'version monitor must check when the page becomes visible');
 expect(versionMonitor.includes("'pageshow'"), 'version monitor must check on Safari pageshow');
 expect(versionMonitor.includes("'focus'"), 'version monitor must check when the page regains focus');
