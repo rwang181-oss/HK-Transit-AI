@@ -1,5 +1,5 @@
-import type { Coordinate } from '@/src/journey/model/types';
-import { haversineMeters } from '@/src/journey/graph/travelTime';
+import type { Coordinate } from '../model/types';
+import { haversineMeters } from '../graph/travelTime';
 
 export interface WalkingRoute {
   meters: number;
