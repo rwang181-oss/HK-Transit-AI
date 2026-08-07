@@ -12,6 +12,8 @@ const result = read('app/journey/result.tsx');
 const map = read('src/components/TransitMap.tsx');
 const html = read('app/+html.tsx');
 const layout = read('app/_layout.tsx');
+const journeyStore = read('src/stores/journeyStore.ts');
+const versionMonitor = read('src/utils/versionMonitor.ts');
 const mapPickerPath = path.join(root, 'app/journey/map-picker.tsx');
 
 expect(!home.includes('setTimeout(() => void loadData()'), 'home typing must not schedule loadData or build the transit graph');
@@ -24,6 +26,13 @@ expect(home.includes('styles.fixedAction'), 'home must keep the primary journey 
 expect(home.indexOf('styles.fixedAction') > home.lastIndexOf('</ScrollView>'), 'fixed journey action must appear after the ScrollView');
 expect(!home.includes('heroSubtitle'), 'home must not render the verbose marketing subtitle');
 expect(!home.includes('promiseRow'), 'home must not render the three promotional promise cards');
+expect(journeyStore.includes('loadJourneyDataSources'), 'production journey store must use provider-isolated data loading');
+expect(!journeyStore.includes('getStaticProviders'), 'journey store must not fail all static providers through one Promise.all import');
+expect(versionMonitor.includes("'visibilitychange'"), 'version monitor must check when the page becomes visible');
+expect(versionMonitor.includes("'pageshow'"), 'version monitor must check on Safari pageshow');
+expect(versionMonitor.includes("'focus'"), 'version monitor must check when the page regains focus');
+expect(versionMonitor.includes("'online'"), 'version monitor must check when connectivity returns');
+expect(versionMonitor.includes('buildVersionReloadUrl'), 'version monitor must navigate with a build cache-buster');
 expect(fs.existsSync(mapPickerPath), 'fullscreen journey map picker must exist');
 if (fs.existsSync(mapPickerPath)) {
   const picker = read('app/journey/map-picker.tsx');
