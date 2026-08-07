@@ -26,9 +26,10 @@ export function getProvider(providerId: ProviderId): Promise<TransitProvider> {
 }
 
 export async function getStaticProviders(): Promise<TransitProvider[]> {
-  return Promise.all([
+  const settled = await Promise.allSettled([
     getProvider('CTB'),
     getProvider('GMB'),
     getProvider('MTR'),
   ]);
+  return settled.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
 }
