@@ -1,5 +1,9 @@
 import type { ProviderId } from '@/src/journey/providers/types';
-import type { JourneyPolicy } from '@/src/journey/model/types';
+import type {
+  JourneyArrivalWindow,
+  JourneyGeometryPoint,
+  JourneyPolicy,
+} from '@/src/journey/model/types';
 
 export interface IndexedServiceRef {
   routeKey: string;
@@ -69,6 +73,7 @@ export interface IndexedJourneyLeg {
   kind: 'ride' | 'transfer';
 }
 
+/** Passenger-facing route object that does not depend on the legacy graph. */
 export interface IndexedJourneyOption {
   id: string;
   totalMinutes: number;
@@ -84,16 +89,23 @@ export interface IndexedJourneyOption {
   walkFromStationMeters: number;
   waitMin: number;
   waitStatus: 'estimated' | 'live' | 'unavailable';
+  catchable: boolean;
+  nextBusMin: number;
+  departureAtMs: number;
+  fallbackHeadwayMinutes: number;
   itinerary: {
     transfers: number;
     isDirect: boolean;
     legs: IndexedJourneyLeg[];
   };
+  boardStopId: string;
   boardProvider: ProviderId;
   boardRoute: string;
   boardBound: 'O' | 'I';
-  boardHubId: string;
-  alightHubId: string;
+  boardHub: IndexedHub;
+  alightHub: IndexedHub;
+  geometry: JourneyGeometryPoint[];
+  arrivalWindow: JourneyArrivalWindow;
 }
 
 export interface JourneyPoint {
