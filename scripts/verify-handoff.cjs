@@ -17,6 +17,8 @@ const required = [
   'src/components/NavigationModal.tsx',
   'app/+html.tsx',
   'scripts/verify-mobile-ux.cjs',
+  'scripts/fetch-kmb-data.cjs',
+  'src/data/kmb.json',
   'docs/ARCHITECTURE.md',
   'docs/PROJECT_STATUS.md',
   'docs/DEPLOYMENT.md',
@@ -47,6 +49,18 @@ try {
   }
 } catch (error) {
   missing.push('valid src/data/gmb.json');
+}
+
+try {
+  const kmb = JSON.parse(fs.readFileSync(path.join(root, 'src/data/kmb.json'), 'utf8'));
+  if (!Array.isArray(kmb.stops) || kmb.stops.length < 1000) {
+    missing.push('complete KMB stop snapshot in src/data/kmb.json');
+  }
+  if (!Array.isArray(kmb.routeStops) || kmb.routeStops.length < 10000) {
+    missing.push('complete KMB route-stop snapshot in src/data/kmb.json');
+  }
+} catch (error) {
+  missing.push('valid src/data/kmb.json');
 }
 
 if (missing.length || forbidden.length) {

@@ -1,5 +1,9 @@
 import { API_BASE_URL } from '@/src/utils/constants';
 import { createRequestCache } from '@/src/utils/requestCache';
+import {
+  resolveKmbTopology,
+  type KmbTopology,
+} from '@/src/journey/data/kmbTopology';
 
 export interface Route {
   route: string;
@@ -72,19 +76,84 @@ async function apiGet<T>(path: string, ttlMs: number): Promise<T> {
   });
 }
 
+async function fetchLiveTopology(): Promise<KmbTopology> {
+  const [stopPayload, routeStopPayload] = await Promise.all([
+    apiGet<{ data: Stop[] }>('/stop/', TOPOLOGY_TTL_MS),
+    apiGet<{ data: RouteStop[] }>('/route-stop/', TOPOLOGY_TTL_MS),
+  ]);
+
+  return {
+    stops: (stopPayload.data || []).map((stop) => ({
+      stopId: stop.stop,
+      name_en: stop.name_en,
+      name_tc: stop.name_tc,
+      name_sc: '',
+      lat: Number(stop.lat),
+      lng: Number(stop.long),
+      provider: 'KMB' as const,
+    })),
+    links: (routeStopPayload.data || []).map((link) => ({
+      route: link.route,
+      bound: link.bound,
+      seq: Number(link.seq),
+      stopId: link.stop,
+      provider: 'KMB' as const,
+    })),
+    cachedAt: new Date().toISOString(),
+  };
+}
+
+let topologyPromise: Promise<KmbTopology> | null = null;
+
+async function loadTopology(): Promise<KmbTopology> {
+  if (topologyPromise) return topologyPromise;
+
+  topologyPromise = (async () => {
+    const bundledModule = await import('@/src/journey/providers/kmbSnapshot');
+    const result = await resolveKmbTopology({
+      bundled: bundledModule.default,
+      fetchFresh: fetchLiveTopology,
+      persistFresh: (fresh) => {
+        topologyPromise = Promise.resolve(fresh);
+      },
+    });
+    if (result.source === 'unavailable') topologyPromise = null;
+    return result.topology;
+  })();
+
+  try {
+    return await topologyPromise;
+  } catch (error) {
+    topologyPromise = null;
+    throw error;
+  }
+}
+
 export async function fetchAllRoutes(): Promise<Route[]> {
   const data = await apiGet<{ data: Route[] }>('/route/', ROUTE_TTL_MS);
   return data.data;
 }
 
 export async function fetchAllStops(): Promise<Stop[]> {
-  const data = await apiGet<{ data: Stop[] }>('/stop/', TOPOLOGY_TTL_MS);
-  return data.data;
+  const topology = await loadTopology();
+  return topology.stops.map((stop) => ({
+    stop: stop.stopId,
+    name_en: stop.name_en,
+    name_tc: stop.name_tc,
+    lat: stop.lat,
+    long: stop.lng,
+  }));
 }
 
 export async function fetchAllRouteStops(): Promise<RouteStop[]> {
-  const data = await apiGet<{ data: RouteStop[] }>('/route-stop/', TOPOLOGY_TTL_MS);
-  return data.data;
+  const topology = await loadTopology();
+  return topology.links.map((link) => ({
+    route: link.route,
+    bound: link.bound,
+    service_type: '1',
+    seq: link.seq,
+    stop: link.stopId,
+  }));
 }
 
 export async function fetchRouteStops(
@@ -99,7 +168,6 @@ export async function fetchRouteStops(
   );
   return data.data;
 }
-
 
 export async function fetchStopETA(stopId: string): Promise<ETA[]> {
   const data = await apiGet<{ data: ETA[] }>(
