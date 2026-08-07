@@ -1,7 +1,7 @@
 import type { ProviderId } from '@/src/journey/providers/types';
 import type { JourneyPolicy } from '@/src/journey/model/types';
-import { haversineMeters } from '@/src/journey/graph/travelTime';
-import { applyJourneyPolicy } from '@/src/journey/planner/routePolicies';
+import { haversineMeters } from '../graph/travelTime';
+import { applyJourneyPolicy } from '../planner/routePolicies';
 import type {
   FastPlannerOptions,
   FastPlannerStats,
@@ -84,8 +84,6 @@ function nearbyHubs(
   }
   nearby.sort((a, b) => a.straightMeters - b.straightMeters);
 
-  // Cover distinct services first so a cluster of nearby platforms for one
-  // route cannot push another useful route outside the small Stage-1 cap.
   const selected: NearbyHub[] = [];
   const selectedIds = new Set<string>();
   const coveredRoutes = new Set<string>();
@@ -128,10 +126,7 @@ function destinationServices(items: NearbyHub[]): Map<string, DestinationService
   return byRoute;
 }
 
-function findDestinationAfter(
-  values: DestinationService[] | undefined,
-  afterSeq: number
-): DestinationService | null {
+function findDestinationAfter(values: DestinationService[] | undefined, afterSeq: number): DestinationService | null {
   if (!values) return null;
   let best: DestinationService | null = null;
   for (const value of values) {
@@ -279,24 +274,23 @@ function candidateToOption(candidate: Candidate, from: JourneyPoint, to: Journey
   const rideMinutesValue = candidate.rideMinutes;
   const totalMinutes = Math.round(walkingMinutes + rideMinutesValue + waitMin + transferWaitMinutes);
   const nowMs = Date.now();
-  const firstRoute = candidate.routeKeys[0];
-  const routeParts = firstRoute.split(':') as [ProviderId, string, 'O' | 'I'];
+  const routeParts = candidate.routeKeys[0].split(':') as [ProviderId, string, 'O' | 'I'];
   const boardStopId = candidate.boardHub.members.find((member) => member.provider === firstLeg.provider)?.stopId || '';
+  const transferPoints = candidate.legs
+    .slice(0, -1)
+    .map((leg) => leg.toHubId)
+    .map((hubId) => ({ hubId }));
   const geometry = [
     { lat: from.lat, lng: from.lng, kind: 'start' as const, label: from.name },
     { lat: candidate.boardHub.lat, lng: candidate.boardHub.lng, kind: 'stop' as const, label: candidate.boardHub.name_en },
-    ...candidate.legs.slice(0, -1).map((leg) => {
-      const hub = leg.toHubId ? candidate.legs.length > 1 ? leg.toHubId : '' : '';
-      return hub;
-    }).filter(Boolean).map((hubId) => ({
-      lat: 0,
-      lng: 0,
-      kind: 'stop' as const,
-      label: hubId,
-    })),
+    ...transferPoints.map(({ hubId }) => ({ hubId })).map(({ hubId }) => ({ hubId })),
     { lat: candidate.alightHub.lat, lng: candidate.alightHub.lng, kind: 'stop' as const, label: candidate.alightHub.name_en },
     { lat: to.lat, lng: to.lng, kind: 'end' as const, label: to.name },
-  ].filter((point) => point.lat !== 0 || point.lng !== 0);
+  ];
+  const resolvedGeometry = geometry.flatMap((point) => {
+    if ('lat' in point) return [point];
+    return [];
+  });
 
   return {
     id: `indexed-${candidate.routeKeys.join('-')}-${candidate.boardHub.id}-${candidate.alightHub.id}-${index}`,
@@ -328,7 +322,7 @@ function candidateToOption(candidate: Candidate, from: JourneyPoint, to: Journey
     boardBound: routeParts[2],
     boardHub: candidate.boardHub,
     alightHub: candidate.alightHub,
-    geometry,
+    geometry: resolvedGeometry,
     arrivalWindow: buildArrivalWindow(totalMinutes, nowMs),
   };
 }
@@ -352,14 +346,7 @@ export function planFastJourney(
   const candidates = new Map<string, Candidate>();
 
   buildDirectCandidates(index, boardHubs, destinationByRoute, candidates);
-  buildOneTransferCandidates(
-    index,
-    boardHubs,
-    destinationByRoute,
-    candidates,
-    stats,
-    maxTransferExpansions
-  );
+  buildOneTransferCandidates(index, boardHubs, destinationByRoute, candidates, stats, maxTransferExpansions);
 
   const converted = [...candidates.values()].map((candidate, candidateIndex) =>
     candidateToOption(candidate, from, to, candidateIndex)
