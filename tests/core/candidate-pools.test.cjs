@@ -24,8 +24,46 @@ function candidate(id, transfers, roughMinutes, route = id) {
   };
 }
 
+function hub(id, name, lat, lng) {
+  return {
+    id,
+    name_en: name,
+    name_tc: name,
+    name_sc: name,
+    lat,
+    lng,
+    members: [{ stopId: id, provider: 'KMB', name_en: name, name_tc: name, name_sc: name, lat, lng }],
+  };
+}
+
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
+
+test('203E is discovered as a direct route from Eye Hospital to the school-village area', () => {
+  const eyeHospital = hub('eye', 'Hong Kong Eye Hospital', 22.3150, 114.1810);
+  const middle = hub('middle', 'Kowloon East intermediate stop', 22.3260, 114.1900);
+  const schoolVillage = hub('school', 'Po Kong Village Road School Village', 22.3420, 114.1980);
+  const hubs = [eyeHospital, middle, schoolVillage];
+  const edges = [
+    { from: 'eye', to: 'middle', weight: 10, provider: 'KMB', route: '203E', bound: 'O', kind: 'ride' },
+    { from: 'middle', to: 'school', weight: 10, provider: 'KMB', route: '203E', bound: 'O', kind: 'ride' },
+  ];
+  const graph = {
+    hubs,
+    edges,
+    adjacency: new Map(),
+    hubById: new Map(hubs.map((item) => [item.id, item])),
+  };
+  const discovered = pools.discoverDirectRouteCandidates(
+    graph,
+    [eyeHospital],
+    { lat: 22.3422, lng: 114.1981 },
+    1_200
+  );
+  assert.ok(discovered.some((item) =>
+    item.routeKey === 'KMB:203E:O' && item.alightHub.id === 'school'
+  ));
+});
 
 test('203E direct candidate survives faster transfer alternatives', () => {
   const values = [candidate('203E', 0, 48, '203E')];
