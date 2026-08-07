@@ -26,6 +26,7 @@
     "src/journey/planner/planner.ts",
     "src/journey/planner/routePolicies.ts",
     "src/journey/planner/candidatePools.ts",
+    "src/journey/walking/walkingRouter.ts",
     "src/journey/comfort/**/*.ts",
     "src/journey/realtime/etaEstimator.ts",
     "src/journey/providers/gmbParser.ts",
