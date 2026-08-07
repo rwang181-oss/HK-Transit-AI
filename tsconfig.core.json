@@ -18,9 +18,13 @@
   },
   "include": [
     "src/journey/providers/types.ts",
+    "src/journey/model/types.ts",
     "src/journey/data/kmbTopology.ts",
     "src/journey/graph/stopMerger.ts",
     "src/journey/graph/travelTime.ts",
+    "src/journey/graph/graphBuilder.ts",
+    "src/journey/planner/planner.ts",
+    "src/journey/planner/routePolicies.ts",
     "src/journey/comfort/**/*.ts",
     "src/journey/realtime/etaEstimator.ts",
     "src/journey/providers/gmbParser.ts",
