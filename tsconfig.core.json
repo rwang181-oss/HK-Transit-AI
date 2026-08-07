@@ -34,6 +34,7 @@
     "src/journey/realtime/navigationTiming.ts",
     "src/journey/providers/routeDisplay.ts",
     "src/utils/requestCache.ts",
-    "src/utils/asyncPool.ts"
+    "src/utils/asyncPool.ts",
+    "src/utils/versionMonitor.ts"
   ]
 }
