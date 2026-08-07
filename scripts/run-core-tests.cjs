@@ -19,6 +19,7 @@ for (const testFile of [
   'tests/core/journey-index.test.cjs',
   'tests/core/journey-index-cache.test.cjs',
   'tests/core/progressive-planner.test.cjs',
+  'tests/core/progressive-diversity.test.cjs',
   'tests/core/progressive-refine.test.cjs',
   'tests/core/progressive-session.test.cjs',
   'tests/core/progressive-deps.test.cjs',
