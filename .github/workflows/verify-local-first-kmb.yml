@@ -14,7 +14,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 18
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
@@ -28,5 +28,8 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Run KMB startup regression test
-        run: npm run test:core
+      - name: Run complete verification
+        run: npm run verify
+
+      - name: Build production web app
+        run: npm run build:web
