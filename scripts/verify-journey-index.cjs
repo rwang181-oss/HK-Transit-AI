@@ -1,0 +1,128 @@
+const fs = require('node:fs');
+const path = require('node:path');
+
+const ROOT = path.join(__dirname, '..');
+const DIR = path.join(ROOT, 'public', 'data', 'journey');
+// Real-world coordinates for the boarding area used by the 203E regression.
+const EYE_HOSPITAL = { lat: 22.32470, lng: 114.18483 };
+const SCHOOL_VILLAGE = { lat: 22.34526, lng: 114.20479 };
+const MAX_ROUTE_NEIGHBORS_BYTES = 8_000_000;
+
+function fail(message) {
+  console.error(`journey-index verification failed: ${message}`);
+  process.exit(1);
+}
+
+function filePath(name) {
+  return path.join(DIR, name);
+}
+
+function read(name) {
+  const file = filePath(name);
+  if (!fs.existsSync(file)) fail(`missing ${name}`);
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (error) {
+    fail(`${name} is invalid JSON: ${error.message}`);
+  }
+}
+
+function haversineMeters(a, b) {
+  const R = 6_371_000;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((a.lat * Math.PI) / 180) *
+      Math.cos((b.lat * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
+function nearestRouteHub(route, hubById, target) {
+  let best = null;
+  route.hubs.forEach((hubId, index) => {
+    const hub = hubById.get(hubId);
+    if (!hub || !Number.isFinite(hub.lat) || !Number.isFinite(hub.lng) || hub.lat === 0 || hub.lng === 0) return;
+    const meters = haversineMeters({ lat: hub.lat, lng: hub.lng }, target);
+    if (!best || meters < best.meters) best = { hub, index, meters };
+  });
+  return best;
+}
+
+const meta = read('meta.json');
+const hubs = read('hubs.json');
+const cells = read('cells.json');
+const routes = read('routes.json');
+const routeNeighbors = read('route-neighbors.json');
+
+if (meta.schemaVersion !== 1) fail(`unexpected schemaVersion ${meta.schemaVersion}`);
+if (!Array.isArray(hubs) || hubs.length <= 1000) fail(`expected >1000 hubs, got ${hubs?.length || 0}`);
+if (!routes || Object.keys(routes).length <= 100) fail(`expected >100 routes, got ${Object.keys(routes || {}).length}`);
+if (!cells || Object.keys(cells).length <= 100) fail(`expected >100 cells, got ${Object.keys(cells || {}).length}`);
+if (!routeNeighbors || typeof routeNeighbors !== 'object') fail('route-neighbors.json must be an object');
+const neighborBytes = fs.statSync(filePath('route-neighbors.json')).size;
+if (neighborBytes > MAX_ROUTE_NEIGHBORS_BYTES) {
+  fail(`route-neighbors.json is too large for a mobile-first index: ${neighborBytes} bytes`);
+}
+
+const hubById = new Map(hubs.map((hub) => [hub.id, hub]));
+const routeEntries = Object.entries(routes);
+for (const [routeKey, route] of routeEntries) {
+  if (!Array.isArray(route.hubs) || route.hubs.length < 2) fail(`${routeKey} has too few hubs`);
+  if (!Array.isArray(route.cumulativeMinutes) || route.cumulativeMinutes.length !== route.hubs.length) {
+    fail(`${routeKey} cumulativeMinutes length does not match hubs`);
+  }
+  for (let index = 0; index < route.cumulativeMinutes.length; index += 1) {
+    const value = Number(route.cumulativeMinutes[index]);
+    if (!Number.isFinite(value)) fail(`${routeKey} has non-finite cumulative time`);
+    if (index > 0 && value < Number(route.cumulativeMinutes[index - 1])) {
+      fail(`${routeKey} cumulativeMinutes is not monotonic`);
+    }
+  }
+  const points = routeNeighbors[routeKey];
+  if (!Array.isArray(points)) fail(`${routeKey} transfer-point list missing`);
+  for (const point of points) {
+    if (!hubById.has(point.hubId)) fail(`${routeKey} transfer point references missing hub ${point.hubId}`);
+    if (!Number.isInteger(point.seq) || point.seq < 0 || point.seq >= route.hubs.length) {
+      fail(`${routeKey} transfer point has invalid sequence ${point.seq}`);
+    }
+  }
+}
+
+const route203EEntries = routeEntries.filter(([key]) => key === 'KMB:203E:O' || key === 'KMB:203E:I');
+if (!route203EEntries.length) fail('KMB 203E route is missing');
+
+let regressionOk = false;
+const diagnostic = [];
+for (const [routeKey, route] of route203EEntries) {
+  const nearestEye = nearestRouteHub(route, hubById, EYE_HOSPITAL);
+  const nearestSchool = nearestRouteHub(route, hubById, SCHOOL_VILLAGE);
+  diagnostic.push({ routeKey, nearestEye, nearestSchool });
+
+  let eyeSeq = -1;
+  let schoolSeq = -1;
+  route.hubs.forEach((hubId, index) => {
+    const hub = hubById.get(hubId);
+    if (!hub || !Number.isFinite(hub.lat) || !Number.isFinite(hub.lng) || hub.lat === 0 || hub.lng === 0) return;
+    const point = { lat: hub.lat, lng: hub.lng };
+    if (eyeSeq < 0 && haversineMeters(point, EYE_HOSPITAL) <= 500) eyeSeq = index;
+    if (eyeSeq >= 0 && index > eyeSeq && haversineMeters(point, SCHOOL_VILLAGE) <= 700) schoolSeq = index;
+  });
+  if (eyeSeq >= 0 && schoolSeq > eyeSeq) {
+    regressionOk = true;
+    break;
+  }
+}
+if (!regressionOk) {
+  for (const item of diagnostic) {
+    const eye = item.nearestEye;
+    const school = item.nearestSchool;
+    console.error(`[203E diagnostic] ${item.routeKey}`);
+    console.error(`  nearest eye: ${eye ? `${eye.hub.name_en} / ${eye.hub.name_tc} @ ${eye.hub.lat},${eye.hub.lng}, seq=${eye.index}, ${Math.round(eye.meters)}m` : 'none'}`);
+    console.error(`  nearest school: ${school ? `${school.hub.name_en} / ${school.hub.name_tc} @ ${school.hub.lat},${school.hub.lng}, seq=${school.index}, ${Math.round(school.meters)}m` : 'none'}`);
+  }
+  fail('203E does not connect the Eye Hospital area to a later School Village area hub');
+}
+
+console.log(`journey-index verification: PASS (${hubs.length} hubs, ${Object.keys(routes).length} routes, ${Object.keys(cells).length} cells, ${neighborBytes} transfer-index bytes)`);

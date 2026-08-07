@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -10,15 +10,12 @@ import {
 } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
-import {
-  sortJourneyOptions,
-  useJourneyStore,
-  type JourneyOption,
-  type TripPoint,
-} from '@/src/stores/journeyStore';
-import { useWeatherStore } from '@/src/stores/weatherStore';
-import { useNavigationStore } from '@/src/stores/navigationStore';
 import type { JourneyPolicy } from '@/src/journey/model/types';
+import { applyJourneyPolicy } from '@/src/journey/planner/routePolicies';
+import { createProgressiveJourneySession } from '@/src/journey/index/progressivePlanner';
+import { hasMeaningfullyBetterResults } from '@/src/journey/index/betterResults';
+import type { IndexedJourneyOption, JourneyPoint } from '@/src/journey/index/types';
+import { useNavigationStore } from '@/src/stores/navigationStore';
 import { TransitMap } from '@/src/components/TransitMap';
 import { JourneyModeChips } from '@/src/components/JourneyModeChips';
 import { JourneyOptionCard } from '@/src/components/JourneyOptionCard';
@@ -52,8 +49,8 @@ const POLICY_HINTS: Record<JourneyPolicy, { en: string; zh: string }> = {
     zh: '按完整預計行程時間排序。',
   },
   lessWalking: {
-    en: 'Sorted by pedestrian-route distance, then transfers and total time.',
-    zh: '按步行道路距離排序，再比較換乘次數及總時間。',
+    en: 'Sorted by walking distance, then transfers and total time.',
+    zh: '按步行距離排序，再比較換乘次數及總時間。',
   },
 };
 
@@ -69,70 +66,124 @@ export default function JourneyResultScreen() {
     toLng: string;
     toName: string;
   }>();
-  const { status, error, loadData, getHubById } = useJourneyStore();
-  const refreshWeather = useWeatherStore((state) => state.refresh);
   const startNavigation = useNavigationStore((state) => state.start);
   const navigationPhase = useNavigationStore((state) => state.phase);
   const navigationError = useNavigationStore((state) => state.error);
 
-  const fromPoint: TripPoint = useMemo(() => ({
+  const fromPoint: JourneyPoint = useMemo(() => ({
     lat: Number(params.fromLat || 0),
     lng: Number(params.fromLng || 0),
     name: safeDecode(params.fromName),
   }), [params.fromLat, params.fromLng, params.fromName]);
-  const toPoint: TripPoint = useMemo(() => ({
+  const toPoint: JourneyPoint = useMemo(() => ({
     lat: Number(params.toLat || 0),
     lng: Number(params.toLng || 0),
     name: safeDecode(params.toName),
   }), [params.toLat, params.toLng, params.toName]);
 
-  const [options, setOptions] = useState<JourneyOption[]>([]);
+  const [displayedOptions, setDisplayedOptions] = useState<IndexedJourneyOption[]>([]);
+  const [pendingImprovedOptions, setPendingImprovedOptions] = useState<IndexedJourneyOption[] | null>(null);
   const [policy, setPolicy] = useState<JourneyPolicy>('recommended');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [planning, setPlanning] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refining, setRefining] = useState(false);
   const [planError, setPlanError] = useState<string | null>(null);
   const [planAttempt, setPlanAttempt] = useState(0);
   const [showRouteMap, setShowRouteMap] = useState(false);
   const [navigationVisible, setNavigationVisible] = useState(false);
   const [startingNavigation, setStartingNavigation] = useState(false);
+  const generationRef = useRef(0);
 
   useEffect(() => {
-    let cancelled = false;
+    const generation = ++generationRef.current;
+    setInitialLoading(true);
+    setRefining(false);
+    setPlanError(null);
+    setDisplayedOptions([]);
+    setPendingImprovedOptions(null);
+    setSelectedId(null);
+    setExpandedId(null);
+    setShowRouteMap(false);
+    setPolicy('recommended');
+
+    const session = createProgressiveJourneySession(fromPoint, toPoint, 'recommended');
     void (async () => {
-      setPlanning(true);
-      setPlanError(null);
-      void refreshWeather();
-      await loadData();
-      if (cancelled) return;
+      let initial: IndexedJourneyOption[];
       try {
-        const currentWeather = useWeatherStore.getState().weather;
-        const planned = await useJourneyStore.getState().plan(
-          fromPoint,
-          toPoint,
-          currentWeather,
-          'recommended'
-        );
-        if (cancelled) return;
-        setOptions(planned);
-        setPolicy('recommended');
-        const sorted = sortJourneyOptions(planned, 'recommended');
-        setSelectedId(sorted[0]?.id || null);
-        setExpandedId(sorted[0]?.id || null);
+        initial = await session.initial;
       } catch (caught) {
-        if (!cancelled) setPlanError(String(caught));
+        if (generation !== generationRef.current) return;
+        setPlanError(String(caught));
+        setInitialLoading(false);
+        return;
+      }
+
+      if (generation !== generationRef.current) return;
+      setDisplayedOptions(initial);
+      setInitialLoading(false);
+      setRefining(true);
+      const firstRanked = applyJourneyPolicy([...initial], 'recommended');
+      setSelectedId(firstRanked[0]?.id || null);
+      setExpandedId(firstRanked[0]?.id || null);
+
+      try {
+        const refined = await session.refined;
+        if (generation !== generationRef.current) return;
+        if (refined.length > 0) setPendingImprovedOptions(refined);
+      } catch {
+        // Background refinement never removes already displayed Stage-1 routes.
       } finally {
-        if (!cancelled) setPlanning(false);
+        if (generation === generationRef.current) setRefining(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [fromPoint.lat, fromPoint.lng, toPoint.lat, toPoint.lng, planAttempt, loadData, refreshWeather]);
 
-  const ranked = useMemo(() => sortJourneyOptions(options, policy), [options, policy]);
+    return () => {
+      if (generation === generationRef.current) generationRef.current += 1;
+    };
+  }, [fromPoint.lat, fromPoint.lng, fromPoint.name, toPoint.lat, toPoint.lng, toPoint.name, planAttempt]);
+
+  const ranked = useMemo(
+    () => applyJourneyPolicy([...displayedOptions], policy),
+    [displayedOptions, policy]
+  );
   const selected = ranked.find((option) => option.id === selectedId) || ranked[0] || null;
-  const hasDirect = options.some((option) => option.itinerary.isDirect);
+  const hasDirect = displayedOptions.some((option) => option.itinerary.isDirect);
+  const betterResultsAvailable = useMemo(
+    () => Boolean(
+      pendingImprovedOptions &&
+      hasMeaningfullyBetterResults(displayedOptions, pendingImprovedOptions, policy)
+    ),
+    [displayedOptions, pendingImprovedOptions, policy]
+  );
+
+  const hubLabels = useMemo(() => {
+    const labels = new Map<string, { en: string; zh: string }>();
+    const addHub = (hub: IndexedJourneyOption['boardHub']) => {
+      labels.set(hub.id, {
+        en: hub.name_en || hub.name_tc || hub.id,
+        zh: hub.name_tc || hub.name_sc || hub.name_en || hub.id,
+      });
+    };
+    for (const option of [
+      ...displayedOptions,
+      ...(pendingImprovedOptions || []),
+    ]) {
+      addHub(option.boardHub);
+      addHub(option.alightHub);
+      for (const leg of option.itinerary.legs) {
+        if (!labels.has(leg.fromHubId)) labels.set(leg.fromHubId, { en: leg.fromName, zh: leg.fromName });
+        if (!labels.has(leg.toHubId)) labels.set(leg.toHubId, { en: leg.toName, zh: leg.toName });
+      }
+    }
+    return labels;
+  }, [displayedOptions, pendingImprovedOptions]);
+
+  const hubName = (hubId: string): string => {
+    const value = hubLabels.get(hubId);
+    if (!value) return hubId;
+    return language === 'en' ? value.en : value.zh;
+  };
 
   useEffect(() => {
     if (ranked.length && !ranked.some((option) => option.id === selectedId)) {
@@ -147,38 +198,41 @@ export default function JourneyResultScreen() {
     }
   }, [navigationVisible, startingNavigation, navigationPhase, navigationError]);
 
-  const hubName = (hubId: string): string => {
-    const hub = getHubById(hubId);
-    if (!hub) return '';
-    return i18n.language === 'en' ? hub.name_en : hub.name_tc || hub.name_sc || hub.name_en;
-  };
-
-  const openEta = (option: JourneyOption) => {
+  const openEta = (option: IndexedJourneyOption) => {
     if (!option.boardStopId || !option.boardRoute) return;
-    const name = hubName(option.boardHub.id) || option.boardHub.name_en;
     const query = new URLSearchParams({
       provider: option.boardProvider,
       route: option.boardRoute,
       stopId: option.boardStopId,
-      name,
+      name: hubName(option.boardHub.id) || option.boardHub.name_en,
     });
     router.push(`/journey/stop-eta?${query.toString()}` as never);
   };
 
-  const selectOption = (option: JourneyOption) => {
+  const selectOption = (option: IndexedJourneyOption) => {
     setSelectedId(option.id);
     setExpandedId(option.id);
   };
 
   const changePolicy = (next: JourneyPolicy) => {
     setPolicy(next);
-    const nextRanked = sortJourneyOptions(options, next);
+    const nextRanked = applyJourneyPolicy([...displayedOptions], next);
     setSelectedId(nextRanked[0]?.id || null);
     setExpandedId(nextRanked[0]?.id || null);
     setShowRouteMap(false);
   };
 
-  const start = async (option: JourneyOption) => {
+  const applyBetterResults = () => {
+    if (!pendingImprovedOptions) return;
+    const nextRanked = applyJourneyPolicy([...pendingImprovedOptions], policy);
+    setDisplayedOptions(pendingImprovedOptions);
+    setPendingImprovedOptions(null);
+    setSelectedId(nextRanked[0]?.id || null);
+    setExpandedId(nextRanked[0]?.id || null);
+    setShowRouteMap(false);
+  };
+
+  const start = async (option: IndexedJourneyOption) => {
     selectOption(option);
     setNavigationVisible(true);
     setStartingNavigation(true);
@@ -224,15 +278,15 @@ export default function JourneyResultScreen() {
         ) : null}
       </View>
 
-      {planning || status === 'loading' ? (
+      {initialLoading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={COLORS.hkRed} />
           <Text style={styles.loadingTitle}>{t('journey.loading')}</Text>
         </View>
-      ) : error || planError ? (
+      ) : planError ? (
         <View style={styles.center}>
           <Text style={styles.errorTitle}>{t('journey.dataError')}</Text>
-          <Text style={styles.errorDetail}>{planError || error}</Text>
+          <Text style={styles.errorDetail}>{planError}</Text>
           <Pressable style={styles.retryButton} onPress={() => setPlanAttempt((value) => value + 1)}>
             <Text style={styles.retryButtonText}>{t('common.retry')}</Text>
           </Pressable>
@@ -242,8 +296,23 @@ export default function JourneyResultScreen() {
           <View style={styles.page}>
             <View style={styles.countRow}>
               <Text style={styles.countTitle}>{t('journey.optionsFound', { count: ranked.length })}</Text>
-              <Text style={styles.countMeta}>{t('journey.selectRouteHint')}</Text>
+              <View style={styles.countMetaRow}>
+                {refining ? <ActivityIndicator size="small" color={COLORS.jade} /> : null}
+                <Text style={styles.countMeta}>
+                  {refining ? t('journey.refiningRoutes') : t('journey.selectRouteHint')}
+                </Text>
+              </View>
             </View>
+
+            {betterResultsAvailable ? (
+              <Pressable style={styles.betterResults} onPress={applyBetterResults}>
+                <View style={styles.betterResultsText}>
+                  <Text style={styles.betterResultsTitle}>{t('journey.betterRoutesFound')}</Text>
+                  <Text style={styles.betterResultsHint}>{t('journey.betterRoutesFoundHint')}</Text>
+                </View>
+                <Text style={styles.betterResultsArrow}>→</Text>
+              </Pressable>
+            ) : null}
 
             <JourneyModeChips value={policy} onChange={changePolicy} />
             <View style={[styles.policyNote, directUnavailable && styles.policyWarning]}>
@@ -346,19 +415,25 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { paddingBottom: 28 },
   page: { width: '100%', maxWidth: 680, alignSelf: 'center' },
-  countRow: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 3, flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 },
+  countRow: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 5, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   countTitle: { color: COLORS.textPrimary, fontSize: 15, fontWeight: '800' },
-  countMeta: { color: COLORS.textTertiary, fontSize: 10, textAlign: 'right', flex: 1 },
+  countMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 6, flex: 1 },
+  countMeta: { color: COLORS.textTertiary, fontSize: 10, textAlign: 'right', flexShrink: 1 },
+  betterResults: { marginHorizontal: 12, marginBottom: 9, paddingHorizontal: 13, paddingVertical: 11, borderRadius: 14, backgroundColor: '#E7F6F3', borderWidth: 1, borderColor: '#B7E3DA', flexDirection: 'row', alignItems: 'center', gap: 10 },
+  betterResultsText: { flex: 1 },
+  betterResultsTitle: { color: COLORS.jade, fontSize: 13, fontWeight: '800' },
+  betterResultsHint: { color: COLORS.textSecondary, fontSize: 10, marginTop: 2 },
+  betterResultsArrow: { color: COLORS.jade, fontSize: 19, fontWeight: '800' },
   policyNote: { marginHorizontal: 14, marginBottom: 9, paddingHorizontal: 11, paddingVertical: 8, borderRadius: 10, backgroundColor: '#EAF2FF' },
   policyNoteText: { color: COLORS.textSecondary, fontSize: 10, lineHeight: 15 },
-  policyWarning: { backgroundColor: '#FFF4E5' },
+  policyWarning: { backgroundColor: '#FFF2E5' },
   policyWarningText: { color: COLORS.etaWarning },
-  emptyCard: { marginHorizontal: 12, marginTop: 8, borderRadius: 17, backgroundColor: COLORS.bgCard, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', padding: 26 },
-  emptyTitle: { color: COLORS.textPrimary, fontSize: 16, fontWeight: '700' },
-  emptyText: { color: COLORS.textSecondary, fontSize: 11, lineHeight: 17, textAlign: 'center', marginTop: 6 },
+  emptyCard: { margin: 14, padding: 20, borderRadius: 15, backgroundColor: COLORS.bgCard, borderWidth: 1, borderColor: COLORS.border },
+  emptyTitle: { color: COLORS.textPrimary, fontSize: 15, fontWeight: '700' },
+  emptyText: { color: COLORS.textSecondary, fontSize: 11, lineHeight: 17, marginTop: 6 },
   mapToggle: { marginHorizontal: 12, marginTop: 2, minHeight: 46, borderRadius: 13, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.bgCard, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   mapToggleText: { color: COLORS.textPrimary, fontSize: 12, fontWeight: '700' },
   mapToggleArrow: { color: COLORS.textSecondary, fontSize: 16 },
   mapWrap: { marginHorizontal: 12, marginTop: 8 },
-  mapNote: { color: COLORS.textTertiary, fontSize: 9, textAlign: 'center', marginTop: 6 },
+  mapNote: { color: COLORS.textTertiary, fontSize: 9, lineHeight: 13, marginTop: 5, marginHorizontal: 4 },
 });

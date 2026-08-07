@@ -7,14 +7,16 @@
     "web": "expo start --web",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "build:web": "expo export --platform web && node scripts/post-build.js",
+    "build:journey-index": "node scripts/build-journey-index.cjs",
+    "verify:journey-index": "node scripts/verify-journey-index.cjs",
+    "build:web": "npm run build:journey-index && npm run verify:journey-index && expo export --platform web && node scripts/post-build.js",
     "deploy": "npm run build:web && npx gh-pages -d dist -m \"deploy: web build\"",
     "test": "jest",
     "lint": "eslint .",
     "test:core": "node scripts/run-core-tests.cjs",
     "verify:source": "node scripts/verify-source.cjs",
     "verify:handoff": "node scripts/verify-handoff.cjs",
-    "verify": "npm run test:core && npm run verify:types && npm run verify:source && npm run verify:mobile && npm run verify:handoff",
+    "verify": "npm run build:journey-index && npm run verify:journey-index && npm run test:core && npm run verify:types && npm run verify:source && npm run verify:mobile && npm run verify:handoff",
     "data:refresh": "node scripts/fetch-transit-data.js",
     "verify:types": "node scripts/verify-types.cjs",
     "verify:mobile": "node scripts/verify-mobile-ux.cjs"
@@ -36,7 +38,6 @@
     "react-native": "0.86.2",
     "react-native-safe-area-context": "^5.8.1",
     "react-native-screens": "^4.26.2",
-    "react-native-web": "^0.21.2",
     "zustand": "^5.0.0"
   },
   "devDependencies": {

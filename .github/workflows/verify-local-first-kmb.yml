@@ -26,12 +26,42 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
+      - name: Generate progressive journey index
+        run: npm run build:journey-index
+
+      - name: Verify progressive journey index
+        run: node scripts/verify-journey-index.cjs
+
       - name: Run complete verification
         run: npm run verify
 
       - name: Build production web app
         run: npm run build:web
 
-      - name: Verify automatic refresh metadata
+      - name: Verify production web artifact
         run: |
-          node -e "const fs=require('fs'); const v=JSON.parse(fs.readFileSync('dist/version.json','utf8')); if(!v.buildId) process.exit(1); const html=fs.readFileSync('dist/index.html','utf8'); if(!html.includes('name=\"hk-transit-build\"')) process.exit(1);"
+          node - <<'NODE'
+          const fs = require('fs');
+          const required = [
+            'dist/version.json',
+            'dist/index.html',
+            'dist/data/journey/meta.json',
+            'dist/data/journey/hubs.json',
+            'dist/data/journey/cells.json',
+            'dist/data/journey/routes.json',
+            'dist/data/journey/route-neighbors.json',
+          ];
+          for (const file of required) {
+            if (!fs.existsSync(file) || fs.statSync(file).size <= 2) {
+              console.error(`Missing or empty production artifact: ${file}`);
+              process.exit(1);
+            }
+          }
+          const v = JSON.parse(fs.readFileSync('dist/version.json', 'utf8'));
+          if (!v.buildId) process.exit(1);
+          const html = fs.readFileSync('dist/index.html', 'utf8');
+          if (!html.includes('name="hk-transit-build"')) process.exit(1);
+          const meta = JSON.parse(fs.readFileSync('dist/data/journey/meta.json', 'utf8'));
+          if (meta.schemaVersion !== 1 || meta.hubCount < 1000 || meta.routeCount < 100) process.exit(1);
+          console.log(`Production journey index verified: ${meta.hubCount} hubs, ${meta.routeCount} routes.`);
+          NODE
