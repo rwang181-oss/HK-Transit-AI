@@ -14,6 +14,7 @@ for (const testFile of [
   'tests/core/kmb-topology.test.cjs',
   'tests/core/journey-policy.test.cjs',
   'tests/core/candidate-pools.test.cjs',
+  'tests/core/walking-router.test.cjs',
 ]) {
   const tests = spawnSync(process.execPath, [testFile], { stdio: 'inherit' });
   if (tests.status !== 0) {
