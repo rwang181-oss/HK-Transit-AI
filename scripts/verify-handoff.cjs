@@ -18,12 +18,25 @@ const required = [
   'src/journey/planner/routePolicies.ts',
   'src/journey/planner/candidatePools.ts',
   'src/journey/walking/walkingRouter.ts',
+  'src/journey/index/types.ts',
+  'src/journey/index/loader.ts',
+  'src/journey/index/fastPlanner.ts',
+  'src/journey/index/refinePlanner.ts',
+  'src/journey/index/betterResults.ts',
+  'src/journey/index/progressivePlanner.ts',
   'src/utils/versionMonitor.ts',
   'app/+html.tsx',
   'scripts/post-build.js',
   'scripts/verify-mobile-ux.cjs',
   'scripts/fetch-kmb-data.cjs',
+  'scripts/build-journey-index.cjs',
+  'scripts/verify-journey-index.cjs',
   'src/data/kmb.json',
+  'public/data/journey/meta.json',
+  'public/data/journey/hubs.json',
+  'public/data/journey/cells.json',
+  'public/data/journey/routes.json',
+  'public/data/journey/route-neighbors.json',
   'docs/ARCHITECTURE.md',
   'docs/PROJECT_STATUS.md',
   'docs/DEPLOYMENT.md',
@@ -44,6 +57,13 @@ for (const item of generatedDirs) {
 
 const missing = required.filter((item) => !fs.existsSync(path.join(root, item)));
 const forbidden = generatedDirs.filter((item) => fs.existsSync(path.join(root, item)));
+
+for (const item of required.filter((value) => value.startsWith('public/data/journey/'))) {
+  const target = path.join(root, item);
+  if (fs.existsSync(target) && fs.statSync(target).size <= 2) {
+    missing.push(`non-empty ${item}`);
+  }
+}
 
 let gmbWarning = null;
 try {
@@ -74,5 +94,5 @@ if (missing.length || forbidden.length) {
   process.exit(1);
 }
 
-console.log('Handoff structure verification passed.');
+console.log('Handoff structure verification passed, including progressive journey index assets.');
 if (gmbWarning) console.warn(`WARNING: ${gmbWarning}`);
