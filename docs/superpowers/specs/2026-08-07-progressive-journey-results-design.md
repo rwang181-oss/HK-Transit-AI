@@ -7,7 +7,7 @@ Eliminate browser main-thread freezes on the journey result page while preservin
 ## Confirmed User Experience
 
 - The first useful route set should appear within 1 second whenever practical on a normal mobile connection/device.
-- The initial set should contain 3–5 practical routes, prioritizing direct and low-transfer options.
+- The initial set should contain 3–5 practical routes when at least that many valid candidates exist; if fewer exist, show all valid initial candidates.
 - The page must remain responsive while planning; it must not trigger browser "This page isn't responding" warnings under normal use.
 - Background search may continue after the first results are shown.
 - If background search finds better routes, the existing list must NOT automatically reorder.
@@ -50,7 +50,7 @@ The exact filenames may change during implementation if a more compact structure
 
 ### 2. Stage 1: Fast Planner
 
-The initial planner returns the first 3–5 routes.
+The initial planner returns the first 3–5 routes when available.
 
 Priority:
 
@@ -85,14 +85,15 @@ If the refined result set is meaningfully better than the currently displayed se
 - show a compact `發現更優路線` / `Better routes found` action;
 - tapping the action swaps the displayed options to the refined set and re-applies the current user policy.
 
-A route set counts as meaningfully better when at least one of the following is true:
+A refined result set counts as meaningfully better when at least one of these deterministic conditions is true:
 
-- a direct route becomes available when none was displayed;
-- the best route under the current policy improves materially;
-- a lower-transfer route becomes available;
-- a materially shorter route appears without violating transfer policy.
+- a direct route becomes available when the displayed set has no direct route;
+- the minimum transfer count improves;
+- the best route under the current policy improves total journey time by at least 5 minutes;
+- under the `lessWalking` policy, the best route reduces walking distance by at least 300 metres without increasing transfers;
+- under `direct` or `oneTransfer`, a newly found route better satisfies the selected transfer constraint than the displayed first option.
 
-Minor ETA drift alone must not trigger the banner.
+ETA-only changes smaller than 5 minutes must not trigger the banner. Re-ranking caused only by small live ETA drift must update internal timing data without replacing the displayed order.
 
 ## Route Policy Preservation
 
@@ -145,7 +146,7 @@ The result screen should distinguish:
 - `betterResultsAvailable`: whether the update action should be shown;
 - `planningError`: only for the absence of any usable planning data/result, not for a single provider/API failure.
 
-Once Stage 1 returns results, the full-screen loading state must end even if Stage 2 continues.
+Once Stage 1 returns at least one valid result, the full-screen loading state must end even if Stage 2 continues.
 
 ## Error Handling
 
@@ -183,10 +184,11 @@ At minimum add regression tests for:
 7. The initial displayed list is not automatically reordered when Stage 2 finishes.
 8. Better background routes set `betterResultsAvailable`.
 9. Applying the better-results action swaps in the refined set.
-10. Minor ETA-only changes do not trigger the better-results banner.
+10. ETA-only changes below the 5-minute threshold do not trigger the better-results banner.
 11. A provider failure does not prevent initial routes from other available providers.
 12. Background refinement failure leaves initial routes intact.
 13. Performance-oriented test/benchmark proves Stage 1 uses bounded operations and no 10×10 exhaustive full-graph search loop.
+14. Less-walking improvement threshold is 300 metres without increased transfers.
 
 ## Performance Acceptance Criteria
 
