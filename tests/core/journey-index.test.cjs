@@ -42,7 +42,7 @@ assert.equal(index.meta.schemaVersion, 1);
 assert.equal(cellKey(22.3211, 114.1870), '11418:2232');
 assert.equal(index.routes['KMB:203E:O'].hubs[0], 'hub-eye');
 assert.ok(index.routes['KMB:203E:O'].cumulativeMinutes.at(-1) > 0);
-assert.ok(index.routeNeighbors['KMB:203E:O'].some((x) => x.toRouteKey === 'KMB:X1:O'));
+assert.ok(index.routeNeighbors['KMB:203E:O'].some((x) => x.hubId === 'hub-junction' && x.seq === 1));
 assert.ok(Object.values(index.cells).some((ids) => ids.includes('hub-eye')));
 assert.deepEqual(
   index.routes['KMB:203E:O'].hubs,
@@ -54,8 +54,11 @@ assert.equal(
 );
 
 const eyeHub = index.hubs.find((hub) => hub.id === 'hub-eye');
+const junctionHub = index.hubs.find((hub) => hub.id === 'hub-junction');
 assert.ok(eyeHub);
+assert.ok(junctionHub);
 assert.ok(eyeHub.services.some((service) => service.routeKey === 'KMB:203E:O' && service.seq === 0));
+assert.ok(junctionHub.services.some((service) => service.routeKey === 'KMB:X1:O'));
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'hk-transit-index-'));
 try {
@@ -65,6 +68,7 @@ try {
     assert.ok(fs.existsSync(file), `${name} should be written`);
     assert.ok(fs.statSync(file).size > 2, `${name} should not be empty`);
   }
+  assert.ok(fs.statSync(path.join(temp, 'route-neighbors.json')).size < 1_000, 'synthetic transfer-point index must stay compact');
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }
