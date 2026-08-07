@@ -94,11 +94,6 @@ export default function JourneyResultScreen() {
   const [navigationVisible, setNavigationVisible] = useState(false);
   const [startingNavigation, setStartingNavigation] = useState(false);
   const generationRef = useRef(0);
-  const policyRef = useRef<JourneyPolicy>('recommended');
-
-  useEffect(() => {
-    policyRef.current = policy;
-  }, [policy]);
 
   useEffect(() => {
     const generation = ++generationRef.current;
@@ -111,7 +106,6 @@ export default function JourneyResultScreen() {
     setExpandedId(null);
     setShowRouteMap(false);
     setPolicy('recommended');
-    policyRef.current = 'recommended';
 
     const session = createProgressiveJourneySession(fromPoint, toPoint, 'recommended');
     void (async () => {
@@ -136,9 +130,7 @@ export default function JourneyResultScreen() {
       try {
         const refined = await session.refined;
         if (generation !== generationRef.current) return;
-        if (hasMeaningfullyBetterResults(initial, refined, policyRef.current)) {
-          setPendingImprovedOptions(refined);
-        }
+        if (refined.length > 0) setPendingImprovedOptions(refined);
       } catch {
         // Background refinement never removes already displayed Stage-1 routes.
       } finally {
@@ -224,7 +216,6 @@ export default function JourneyResultScreen() {
 
   const changePolicy = (next: JourneyPolicy) => {
     setPolicy(next);
-    policyRef.current = next;
     const nextRanked = applyJourneyPolicy([...displayedOptions], next);
     setSelectedId(nextRanked[0]?.id || null);
     setExpandedId(nextRanked[0]?.id || null);
