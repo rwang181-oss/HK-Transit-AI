@@ -3,27 +3,31 @@ import { create } from 'zustand';
 import type { Stop, RouteStopLink, ProviderId } from '@/src/journey/providers/types';
 import { getProvider, getStaticProviders } from '@/src/journey/providers';
 import type { StopHub } from '@/src/journey/graph/stopMerger';
-import { mergeStops } from '@/src/journey/graph/stopMerger';
 import type { Edge, Graph } from '@/src/journey/graph/graphBuilder';
 import { buildGraph } from '@/src/journey/graph/graphBuilder';
-import type { Itinerary, ItineraryLeg } from '@/src/journey/planner/planner';
+import type { Itinerary } from '@/src/journey/planner/planner';
 import { planJourney } from '@/src/journey/planner/planner';
+import { haversineMeters, estimateWalkMinutes } from '@/src/journey/graph/travelTime';
 import {
-  haversineMeters,
-  estimateWalkMinutes,
-} from '@/src/journey/graph/travelTime';
+  retainCandidatePools,
+  selectRouteAwareHubs,
+  type CandidatePoolItem,
+} from '@/src/journey/planner/candidatePools';
+import { applyJourneyPolicy } from '@/src/journey/planner/routePolicies';
+import {
+  walkingRouter,
+  type WalkingRoute,
+} from '@/src/journey/walking/walkingRouter';
 import * as kmbAPI from '@/src/services/kmbAPI';
 import type {
   ComfortMetrics,
   JourneyArrivalWindow,
   JourneyGeometryPoint,
   JourneyMode,
+  JourneyPolicy,
   WeatherSnapshot,
 } from '@/src/journey/model/types';
-import {
-  calculateComfortMetrics,
-  scoreComfortOption,
-} from '@/src/journey/comfort/comfortEngine';
+import { calculateComfortMetrics, scoreComfortOption } from '@/src/journey/comfort/comfortEngine';
 import { recalculateJourneyEta } from '@/src/journey/realtime/etaEstimator';
 import { selectDepartureEstimate } from '@/src/journey/realtime/departureSelector';
 import { waitAfterWalking } from '@/src/journey/realtime/navigationTiming';
@@ -32,8 +36,9 @@ import { mapWithConcurrency } from '@/src/utils/asyncPool';
 const KMB_CACHE_KEY = '@hk-transit-ai/kmb-topology-v2';
 const MAX_WALK_TO_STATION_M = 1_200;
 const MAX_WALK_FROM_STATION_M = 1_200;
-const MAX_CANDIDATES_FOR_ETA = 4;
-const ETA_CONCURRENCY = 3;
+const MAX_ROUTE_AWARE_HUBS = 20;
+const MAX_TRANSFER_HUBS = 10;
+const ETA_CONCURRENCY = 4;
 const DEFAULT_WAIT_MINUTES: Record<ProviderId, number> = {
   KMB: 8,
   CTB: 8,
@@ -42,29 +47,11 @@ const DEFAULT_WAIT_MINUTES: Record<ProviderId, number> = {
 };
 
 function normalizeSearch(value: string): string {
-  return String(value || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9一-鿿]/g, '');
+  return String(value || '').toLowerCase().replace(/[^a-z0-9一-鿿]/g, '');
 }
 
 function hasCoordinates(value: { lat: number; lng: number }): boolean {
   return Number.isFinite(value.lat) && Number.isFinite(value.lng) && value.lat !== 0 && value.lng !== 0;
-}
-
-function nearestHubs(
-  hubs: StopHub[],
-  lat: number,
-  lng: number,
-  limit: number,
-  maxDistance = Infinity
-): StopHub[] {
-  return hubs
-    .filter(hasCoordinates)
-    .map((hub) => ({ hub, distance: haversineMeters(lat, lng, hub.lat, hub.lng) }))
-    .filter((item) => item.distance <= maxDistance)
-    .sort((a, b) => a.distance - b.distance)
-    .slice(0, limit)
-    .map((item) => item.hub);
 }
 
 export type EtaStatus = 'live' | 'estimated' | 'unavailable';
@@ -74,6 +61,7 @@ export interface JourneyOption {
   totalMinutes: number;
   walkingMinutes: number;
   walkingMeters: number;
+  walkingSource: 'routed' | 'estimated';
   rideMinutes: number;
   transferMinutes: number;
   transferWaitMinutes: number;
@@ -124,7 +112,12 @@ interface JourneyState {
   loadData: () => Promise<void>;
   searchStops: (query: string) => StopHub[];
   searchAny: (query: string) => Promise<PlaceSuggestion[]>;
-  plan: (from: TripPoint, to: TripPoint, weather?: WeatherSnapshot) => Promise<JourneyOption[]>;
+  plan: (
+    from: TripPoint,
+    to: TripPoint,
+    weather?: WeatherSnapshot,
+    policy?: JourneyPolicy
+  ) => Promise<JourneyOption[]>;
   getHubById: (id: string) => StopHub | undefined;
 }
 
@@ -182,33 +175,24 @@ async function loadKmbData(): Promise<{ stops: Stop[]; links: RouteStopLink[]; w
       await AsyncStorage.removeItem(KMB_CACHE_KEY).catch(() => undefined);
     }
   }
-
-  try {
-    return await fetchFreshKmbTopology();
-  } catch (networkError) {
-    throw networkError;
-  }
+  return fetchFreshKmbTopology();
 }
 
 async function loadStaticProvider(provider: Awaited<ReturnType<typeof getStaticProviders>>[number]) {
   if (provider.fetchTopology) return provider.fetchTopology();
   const [stops, routes] = await Promise.all([provider.fetchStops(), provider.fetchRoutes()]);
-  const nested = await Promise.all(
-    routes.map((route) => provider.fetchRouteStops(route.route, route.bound))
-  );
+  const nested = await Promise.all(routes.map((route) => provider.fetchRouteStops(route.route, route.bound)));
   return { stops, links: nested.flat() };
 }
 
-interface RawCandidate {
+interface RawCandidate extends CandidatePoolItem {
   boardHub: StopHub;
   alightHub: StopHub;
   rideMinutes: number;
-  routeKey: string;
   walkToMinutes: number;
   walkFromMinutes: number;
   walkToMeters: number;
   walkFromMeters: number;
-  isDirect: boolean;
   itinerary?: Itinerary;
 }
 
@@ -239,7 +223,8 @@ function buildDirectCandidates(
   const seen = new Set<string>();
   for (const boardHub of boardHubs) {
     for (const routeKey of hubRoutes.get(boardHub.id) || []) {
-      const edges = routeEdges.get(routeKey)!;
+      const edges = routeEdges.get(routeKey);
+      if (!edges) continue;
       let current = boardHub.id;
       let rideMinutes = 0;
       const visited = new Set<string>();
@@ -256,16 +241,19 @@ function buildDirectCandidates(
         if (seen.has(key)) continue;
         seen.add(key);
         const walkToMeters = haversineMeters(from.lat, from.lng, boardHub.lat, boardHub.lng);
+        const walkToMinutes = estimateWalkMinutes(walkToMeters * 1.35);
+        const walkFromMinutes = estimateWalkMinutes(walkFromMeters * 1.35);
         candidates.push({
           boardHub,
           alightHub,
           rideMinutes,
           routeKey,
-          walkToMinutes: estimateWalkMinutes(walkToMeters),
-          walkFromMinutes: estimateWalkMinutes(walkFromMeters),
-          walkToMeters,
-          walkFromMeters,
+          walkToMinutes,
+          walkFromMinutes,
+          walkToMeters: walkToMeters * 1.35,
+          walkFromMeters: walkFromMeters * 1.35,
           isDirect: true,
+          roughMinutes: walkToMinutes + rideMinutes + walkFromMinutes,
         });
       }
     }
@@ -283,54 +271,40 @@ function buildTransferCandidates(
 ): RawCandidate[] {
   const directPairs = new Set(existing.map((item) => `${item.boardHub.id}|${item.alightHub.id}`));
   const candidates: RawCandidate[] = [];
-  for (const boardHub of boardHubs) {
-    for (const alightHub of alightHubs) {
+  for (const boardHub of boardHubs.slice(0, MAX_TRANSFER_HUBS)) {
+    for (const alightHub of alightHubs.slice(0, MAX_TRANSFER_HUBS)) {
       if (boardHub.id === alightHub.id) continue;
       if (directPairs.has(`${boardHub.id}|${alightHub.id}`)) continue;
-      const itinerary = planJourney(graph, boardHub.id, alightHub.id);
-      if (!itinerary || itinerary.legs.length === 0) continue;
+      const itinerary = planJourney(graph, boardHub.id, alightHub.id, {
+        transferPenaltyMinutes: 10,
+        transferWalkBufferMinutes: 2,
+        maxTransfers: 2,
+      });
+      if (!itinerary || itinerary.legs.length === 0 || itinerary.transfers > 2) continue;
       const firstRide = itinerary.legs.find((leg) => leg.kind === 'ride');
       if (!firstRide) continue;
-      const walkToMeters = haversineMeters(from.lat, from.lng, boardHub.lat, boardHub.lng);
-      const walkFromMeters = haversineMeters(alightHub.lat, alightHub.lng, to.lat, to.lng);
+      const straightTo = haversineMeters(from.lat, from.lng, boardHub.lat, boardHub.lng);
+      const straightFrom = haversineMeters(alightHub.lat, alightHub.lng, to.lat, to.lng);
+      const walkToMeters = straightTo * 1.35;
+      const walkFromMeters = straightFrom * 1.35;
+      const walkToMinutes = Math.max(2, walkToMeters / 70);
+      const walkFromMinutes = Math.max(2, walkFromMeters / 70);
       candidates.push({
         boardHub,
         alightHub,
         rideMinutes: itinerary.totalMinutes,
         routeKey: `${firstRide.provider}:${firstRide.route}:${firstRide.bound}`,
-        walkToMinutes: estimateWalkMinutes(walkToMeters),
-        walkFromMinutes: estimateWalkMinutes(walkFromMeters),
+        walkToMinutes,
+        walkFromMinutes,
         walkToMeters,
         walkFromMeters,
         isDirect: false,
         itinerary,
+        roughMinutes: walkToMinutes + itinerary.totalMinutes + walkFromMinutes,
       });
     }
   }
   return candidates;
-}
-
-function roughCandidateMinutes(candidate: RawCandidate): number {
-  return candidate.walkToMinutes + candidate.rideMinutes + candidate.walkFromMinutes;
-}
-
-function deduplicateCandidates(candidates: RawCandidate[]): RawCandidate[] {
-  const best = new Map<string, RawCandidate>();
-  for (const candidate of candidates) {
-    const [provider, route, bound] = candidate.routeKey.split(':');
-    const signature = candidate.isDirect
-      ? `${provider}:${route}:${bound}:${candidate.boardHub.id}:${candidate.alightHub.id}`
-      : candidate.itinerary?.legs
-          .map((leg) => `${leg.provider}:${leg.route}:${leg.fromHubId}:${leg.toHubId}`)
-          .join('|') || '';
-    const previous = best.get(signature);
-    if (!previous || roughCandidateMinutes(candidate) < roughCandidateMinutes(previous)) {
-      best.set(signature, candidate);
-    }
-  }
-  return [...best.values()]
-    .sort((a, b) => roughCandidateMinutes(a) - roughCandidateMinutes(b))
-    .slice(0, MAX_CANDIDATES_FOR_ETA);
 }
 
 interface DepartureEstimate {
@@ -352,13 +326,8 @@ async function fetchDepartureEstimate(
   const requestedAtMs = Date.now();
   if (!member) {
     const estimated = selectDepartureEstimate([], walkToMinutes, fallback);
-    return {
-      ...estimated,
-      departureAtMs: requestedAtMs + estimated.minutes * 60_000,
-      status: 'unavailable',
-    };
+    return { ...estimated, departureAtMs: requestedAtMs + estimated.minutes * 60_000, status: 'unavailable' };
   }
-
   try {
     const provider = await getProvider(providerId);
     const etaRows = await provider.fetchETA(member.stopId, route);
@@ -368,16 +337,10 @@ async function fetchDepartureEstimate(
       .filter((minutes) => Number.isFinite(minutes) && minutes >= 0)
       .sort((a, b) => a - b);
     const selected = selectDepartureEstimate(times, walkToMinutes, fallback);
-    return {
-      ...selected,
-      departureAtMs: requestedAtMs + selected.minutes * 60_000,
-    };
+    return { ...selected, departureAtMs: requestedAtMs + selected.minutes * 60_000 };
   } catch {
     const estimated = selectDepartureEstimate([], walkToMinutes, fallback);
-    return {
-      ...estimated,
-      departureAtMs: requestedAtMs + estimated.minutes * 60_000,
-    };
+    return { ...estimated, departureAtMs: requestedAtMs + estimated.minutes * 60_000 };
   }
 }
 
@@ -388,20 +351,36 @@ function itineraryForCandidate(candidate: RawCandidate): Itinerary {
     totalMinutes: Math.round(candidate.rideMinutes),
     transfers: 0,
     isDirect: true,
-    legs: [
-      {
-        provider,
-        route,
-        bound: bound as 'O' | 'I',
-        fromHubId: candidate.boardHub.id,
-        toHubId: candidate.alightHub.id,
-        fromName: candidate.boardHub.name_en,
-        toName: candidate.alightHub.name_en,
-        minutes: candidate.rideMinutes,
-        kind: 'ride',
-      },
-    ],
+    legs: [{
+      provider,
+      route,
+      bound: bound as 'O' | 'I',
+      fromHubId: candidate.boardHub.id,
+      toHubId: candidate.alightHub.id,
+      fromName: candidate.boardHub.name_en,
+      toName: candidate.alightHub.name_en,
+      minutes: candidate.rideMinutes,
+      kind: 'ride',
+    }],
   };
+}
+
+function appendGeometry(
+  output: JourneyGeometryPoint[],
+  geometry: Array<{ lat: number; lng: number }>,
+  finalKind: JourneyGeometryPoint['kind'],
+  finalLabel?: string
+) {
+  geometry.forEach((point, index) => {
+    const previous = output[output.length - 1];
+    if (previous && previous.lat === point.lat && previous.lng === point.lng) return;
+    output.push({
+      lat: point.lat,
+      lng: point.lng,
+      kind: index === geometry.length - 1 ? finalKind : 'walk',
+      label: index === geometry.length - 1 ? finalLabel : undefined,
+    });
+  });
 }
 
 function buildGeometry(
@@ -410,25 +389,27 @@ function buildGeometry(
   itinerary: Itinerary,
   graph: Graph,
   boardHub: StopHub,
-  alightHub: StopHub
+  alightHub: StopHub,
+  walkTo: WalkingRoute,
+  walkFrom: WalkingRoute
 ): JourneyGeometryPoint[] {
-  const points: JourneyGeometryPoint[] = [
-    { lat: from.lat, lng: from.lng, kind: 'start', label: from.name },
-    { lat: boardHub.lat, lng: boardHub.lng, kind: 'stop', label: boardHub.name_en },
-  ];
+  const points: JourneyGeometryPoint[] = [];
+  appendGeometry(points, walkTo.geometry, 'stop', boardHub.name_en);
+  if (!points.length) points.push({ ...from, kind: 'start' });
+  points[0] = { ...points[0], kind: 'start', label: from.name };
   for (const leg of itinerary.legs) {
     const hub = graph.hubById.get(leg.toHubId);
-    if (hub && hasCoordinates(hub)) {
-      const last = points[points.length - 1];
-      if (last.lat !== hub.lat || last.lng !== hub.lng) {
-        points.push({ lat: hub.lat, lng: hub.lng, kind: 'stop', label: hub.name_en });
-      }
-    }
+    if (!hub || !hasCoordinates(hub)) continue;
+    const last = points[points.length - 1];
+    if (last?.lat === hub.lat && last?.lng === hub.lng) continue;
+    points.push({ lat: hub.lat, lng: hub.lng, kind: 'stop', label: hub.name_en });
   }
-  if (points[points.length - 1].lat !== alightHub.lat || points[points.length - 1].lng !== alightHub.lng) {
+  const last = points[points.length - 1];
+  if (last?.lat !== alightHub.lat || last?.lng !== alightHub.lng) {
     points.push({ lat: alightHub.lat, lng: alightHub.lng, kind: 'stop', label: alightHub.name_en });
   }
-  points.push({ lat: to.lat, lng: to.lng, kind: 'end', label: to.name });
+  appendGeometry(points, walkFrom.geometry.slice(1), 'end', to.name);
+  if (!points.some((point) => point.kind === 'end')) points.push({ ...to, kind: 'end' });
   return points;
 }
 
@@ -448,26 +429,17 @@ function buildOption(
   from: TripPoint,
   to: TripPoint,
   weather: WeatherSnapshot,
-  index: number
+  index: number,
+  walkTo: WalkingRoute,
+  walkFrom: WalkingRoute
 ): JourneyOption {
-  const rideMinutes = itinerary.legs
-    .filter((leg) => leg.kind === 'ride')
-    .reduce((sum, leg) => sum + leg.minutes, 0);
-  const transferMinutes = itinerary.legs
-    .filter((leg) => leg.kind === 'transfer')
-    .reduce((sum, leg) => sum + leg.minutes, 0);
-  const walkingMinutes = candidate.walkToMinutes + candidate.walkFromMinutes + transferMinutes;
+  const rideMinutes = itinerary.legs.filter((leg) => leg.kind === 'ride').reduce((sum, leg) => sum + leg.minutes, 0);
+  const transferMinutes = itinerary.legs.filter((leg) => leg.kind === 'transfer').reduce((sum, leg) => sum + leg.minutes, 0);
+  const walkingMinutes = walkTo.minutes + walkFrom.minutes + transferMinutes;
   const transferWaitMinutes = itinerary.transfers * 4;
-  const waitAtStationMinutes = waitAfterWalking(
-    departure.minutes,
-    candidate.walkToMinutes
-  );
-  const walkingMeters = Math.round(
-    candidate.walkToMeters + candidate.walkFromMeters + transferMinutes * 80
-  );
-  const totalMinutes = Math.round(
-    walkingMinutes + waitAtStationMinutes + rideMinutes + transferWaitMinutes
-  );
+  const waitAtStationMinutes = waitAfterWalking(departure.minutes, walkTo.minutes);
+  const walkingMeters = Math.round(walkTo.meters + walkFrom.meters + transferMinutes * 70);
+  const totalMinutes = Math.round(walkingMinutes + waitAtStationMinutes + rideMinutes + transferWaitMinutes);
   const [providerValue, route, boundValue] = candidate.routeKey.split(':');
   const provider = providerValue as ProviderId;
   const bound = boundValue as 'O' | 'I';
@@ -478,8 +450,9 @@ function buildOption(
     const key = leg.provider as ProviderId;
     rideMinutesByProvider[key] = (rideMinutesByProvider[key] || 0) + leg.minutes;
   }
+  const id = `option-${provider}-${route}-${candidate.boardHub.id}-${candidate.alightHub.id}-${index}`;
   const comfortInput = {
-    id: `option-${index}`,
+    id,
     totalMinutes,
     walkingMinutes,
     walkingMeters,
@@ -502,19 +475,21 @@ function buildOption(
     transferBufferMinutes: transferWaitMinutes,
     hasLiveSpeed: false,
   });
+  const walkingSource = walkTo.source === 'routed' && walkFrom.source === 'routed' ? 'routed' : 'estimated';
 
   return {
-    id: comfortInput.id,
+    id,
     totalMinutes,
     walkingMinutes,
     walkingMeters,
+    walkingSource,
     rideMinutes,
     transferMinutes,
     transferWaitMinutes,
-    walkToStationMin: candidate.walkToMinutes,
-    walkToStationMeters: Math.round(candidate.walkToMeters),
-    walkFromStationMin: candidate.walkFromMinutes,
-    walkFromStationMeters: Math.round(candidate.walkFromMeters),
+    walkToStationMin: walkTo.minutes,
+    walkToStationMeters: walkTo.meters,
+    walkFromStationMin: walkFrom.minutes,
+    walkFromStationMeters: walkFrom.meters,
     waitMin: Math.round(waitAtStationMinutes),
     waitStatus: departure.status,
     catchable: departure.catchable,
@@ -528,12 +503,12 @@ function buildOption(
     boardProvider: provider,
     boardHub: candidate.boardHub,
     alightHub: candidate.alightHub,
-    geometry: buildGeometry(from, to, itinerary, graph, candidate.boardHub, candidate.alightHub),
+    geometry: buildGeometry(from, to, itinerary, graph, candidate.boardHub, candidate.alightHub, walkTo, walkFrom),
     comfortMetrics,
     comfortScores,
     arrivalWindow,
     notes: [
-      'approximateWalkingGeometry',
+      ...(walkingSource === 'estimated' ? (['approximateWalkingGeometry'] as const) : []),
       'estimatedComfort',
       ...(departure.status === 'live' ? [] : (['estimatedWait'] as const)),
     ],
@@ -542,11 +517,9 @@ function buildOption(
 
 export function sortJourneyOptions(
   options: JourneyOption[],
-  mode: JourneyMode
+  policy: JourneyPolicy
 ): JourneyOption[] {
-  return [...options].sort(
-    (a, b) => a.comfortScores[mode] - b.comfortScores[mode] || a.totalMinutes - b.totalMinutes
-  );
+  return applyJourneyPolicy(options, policy);
 }
 
 export const useJourneyStore = create<JourneyState>((set, get) => ({
@@ -559,14 +532,10 @@ export const useJourneyStore = create<JourneyState>((set, get) => ({
   loadData: async () => {
     if (get().status === 'ready') return;
     if (journeyDataLoad) return journeyDataLoad;
-
     set({ status: 'loading', error: null });
     journeyDataLoad = (async () => {
       try {
-        const [kmb, staticProviders] = await Promise.all([
-          loadKmbData(),
-          getStaticProviders(),
-        ]);
+        const [kmb, staticProviders] = await Promise.all([loadKmbData(), getStaticProviders()]);
         const loaded = await Promise.all(staticProviders.map(loadStaticProvider));
         const allStops = [kmb.stops, ...loaded.map((item) => item.stops)].flat();
         const allLinks = [kmb.links, ...loaded.map((item) => item.links)].flat();
@@ -590,8 +559,8 @@ export const useJourneyStore = create<JourneyState>((set, get) => ({
   searchStops: (query) => {
     const normalized = normalizeSearch(query);
     if (!normalized) return [];
-    return get()
-      .hubs.map((hub) => {
+    return get().hubs
+      .map((hub) => {
         const names = [hub.name_en, hub.name_tc, hub.name_sc].map(normalizeSearch);
         let score = 0;
         for (const name of names) {
@@ -636,34 +605,28 @@ export const useJourneyStore = create<JourneyState>((set, get) => ({
     return [...stationHits, ...placeHits].slice(0, 10);
   },
 
-  plan: async (from, to, weather = DEFAULT_WEATHER) => {
+  plan: async (from, to, weather = DEFAULT_WEATHER, policy = 'recommended') => {
     const graph = get().graph;
     if (!graph || !hasCoordinates(from) || !hasCoordinates(to)) return [];
-    const boardHubs = nearestHubs(get().hubs, from.lat, from.lng, 5, MAX_WALK_TO_STATION_M);
-    const alightHubs = nearestHubs(get().hubs, to.lat, to.lng, 5, MAX_WALK_FROM_STATION_M);
+    const boardHubs = selectRouteAwareHubs(get().hubs, from, graph, MAX_WALK_TO_STATION_M, MAX_ROUTE_AWARE_HUBS);
+    const alightHubs = selectRouteAwareHubs(get().hubs, to, graph, MAX_WALK_FROM_STATION_M, MAX_ROUTE_AWARE_HUBS);
     const { hubRoutes, routeEdges } = buildRouteIndexes(graph);
     const direct = buildDirectCandidates(graph, boardHubs, to, from, hubRoutes, routeEdges);
     const transfer = buildTransferCandidates(graph, boardHubs, alightHubs, from, to, direct);
-    const candidates = deduplicateCandidates([...direct, ...transfer]);
+    const candidates = retainCandidatePools([...direct, ...transfer]);
 
-    const options = await mapWithConcurrency(
-      candidates,
-      ETA_CONCURRENCY,
-      async (candidate, index) => {
-        const [provider, route, bound] = candidate.routeKey.split(':') as [ProviderId, string, 'O' | 'I'];
-        const departure = await fetchDepartureEstimate(
-          provider,
-          route,
-          bound,
-          candidate.boardHub,
-          candidate.walkToMinutes
-        );
-        const itinerary = itineraryForCandidate(candidate);
-        return buildOption(candidate, departure, itinerary, graph, from, to, weather, index);
-      }
-    );
+    const options = await mapWithConcurrency(candidates, ETA_CONCURRENCY, async (candidate, index) => {
+      const [provider, route, bound] = candidate.routeKey.split(':') as [ProviderId, string, 'O' | 'I'];
+      const [walkTo, walkFrom] = await Promise.all([
+        walkingRouter.route(from, candidate.boardHub),
+        walkingRouter.route(candidate.alightHub, to),
+      ]);
+      const departure = await fetchDepartureEstimate(provider, route, bound, candidate.boardHub, walkTo.minutes);
+      const itinerary = itineraryForCandidate(candidate);
+      return buildOption(candidate, departure, itinerary, graph, from, to, weather, index, walkTo, walkFrom);
+    });
 
-    return sortJourneyOptions(options, 'recommended');
+    return sortJourneyOptions(options, policy);
   },
 
   getHubById: (id) => get().graph?.hubById.get(id),

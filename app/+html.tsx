@@ -10,13 +10,6 @@ export default function Root({ children }: { children: any }) {
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="format-detection" content="telephone=no" />
-        <link rel="preconnect" href="https://a.basemaps.cartocdn.com" />
-        <link rel="preconnect" href="https://b.basemaps.cartocdn.com" />
-        <link
-          rel="stylesheet"
-          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-          crossOrigin="anonymous"
-        />
         <style dangerouslySetInnerHTML={{ __html: `
           :root { color-scheme: light; background: #F4F6F8; }
           html, body, #root { width: 100%; min-height: 100%; margin: 0; }

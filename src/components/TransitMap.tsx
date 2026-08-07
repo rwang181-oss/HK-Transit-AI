@@ -42,6 +42,18 @@ function pointColor(kind: MapPoint['kind']): string {
   }
 }
 
+function ensureLeafletCss(): void {
+  if (typeof document === 'undefined') return;
+  const id = 'hk-transit-leaflet-css';
+  if (document.getElementById(id)) return;
+  const link = document.createElement('link');
+  link.id = id;
+  link.rel = 'stylesheet';
+  link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  link.crossOrigin = 'anonymous';
+  document.head.appendChild(link);
+}
+
 export function TransitMap({
   center,
   points,
@@ -67,6 +79,7 @@ export function TransitMap({
 
     void (async () => {
       try {
+        ensureLeafletCss();
         const module = await import('leaflet');
         if (disposed || !containerRef.current) return;
         const L = module.default || module;
@@ -82,14 +95,15 @@ export function TransitMap({
           markerZoomAnimation: false,
         });
         L.tileLayer(
-          'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+          'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
           {
             subdomains: 'abcd',
             maxZoom: 20,
             minZoom: 10,
+            detectRetina: false,
             updateWhenIdle: true,
             updateWhenZooming: false,
-            keepBuffer: 1,
+            keepBuffer: 0,
             crossOrigin: true,
             attribution: '© OpenStreetMap contributors © CARTO',
           }

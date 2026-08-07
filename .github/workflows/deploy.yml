@@ -35,6 +35,10 @@ jobs:
       - name: Build web
         run: npm run build:web
 
+      - name: Verify automatic refresh metadata
+        run: |
+          node -e "const fs=require('fs'); const v=JSON.parse(fs.readFileSync('dist/version.json','utf8')); if(!v.buildId) process.exit(1); const html=fs.readFileSync('dist/index.html','utf8'); if(!html.includes('name=\"hk-transit-build\"')) process.exit(1);"
+
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 

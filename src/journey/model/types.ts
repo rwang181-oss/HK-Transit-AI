@@ -1,6 +1,7 @@
 import type { ProviderId } from '@/src/journey/providers/types';
 
 export type JourneyMode = 'recommended' | 'fastest' | 'shade' | 'rain' | 'indoor';
+export type JourneyPolicy = 'recommended' | 'direct' | 'oneTransfer' | 'fastest' | 'lessWalking';
 export type ConfidenceLevel = 'live' | 'estimated' | 'unavailable';
 
 export interface Coordinate {

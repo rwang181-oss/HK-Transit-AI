@@ -1,14 +1,14 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import type { JourneyOption } from '@/src/stores/journeyStore';
-import type { JourneyMode } from '@/src/journey/model/types';
+import type { JourneyPolicy } from '@/src/journey/model/types';
 import { COLORS } from '@/src/utils/constants';
 import { formatPublicRouteCode } from '@/src/journey/providers/routeDisplay';
 
 interface JourneyOptionCardProps {
   option: JourneyOption;
   rank: number;
-  mode: JourneyMode;
+  policy: JourneyPolicy;
   selected: boolean;
   expanded: boolean;
   hubName: (hubId: string) => string;
@@ -17,6 +17,14 @@ interface JourneyOptionCardProps {
   onStart: () => void;
   onOpenEta: () => void;
 }
+
+const POLICY_LABELS: Record<JourneyPolicy, { en: string; zh: string }> = {
+  recommended: { en: 'Comprehensive', zh: '綜合推薦' },
+  direct: { en: 'Direct first', zh: '直達優先' },
+  oneTransfer: { en: 'At most 1 transfer', zh: '最多一次換乘' },
+  fastest: { en: 'Fastest', zh: '最快' },
+  lessWalking: { en: 'Less walking', zh: '少步行' },
+};
 
 function formatClock(timestamp: number, locale: string): string {
   return new Intl.DateTimeFormat(locale === 'en' ? 'en-HK' : 'zh-HK', {
@@ -30,7 +38,7 @@ function formatClock(timestamp: number, locale: string): string {
 export function JourneyOptionCard({
   option,
   rank,
-  mode,
+  policy,
   selected,
   expanded,
   hubName,
@@ -40,11 +48,20 @@ export function JourneyOptionCard({
   onOpenEta,
 }: JourneyOptionCardProps) {
   const { t, i18n } = useTranslation();
+  const language = i18n.language === 'en' ? 'en' : 'zh';
   const firstRide = option.itinerary.legs.find((leg) => leg.kind === 'ride');
   const arrival = `${formatClock(option.arrivalWindow.earliestArrivalMs, i18n.language)}–${formatClock(
     option.arrivalWindow.latestArrivalMs,
     i18n.language
   )}`;
+  const transferLabel = option.itinerary.isDirect
+    ? language === 'en' ? 'Direct' : '直達'
+    : language === 'en'
+      ? `${option.itinerary.transfers} transfer${option.itinerary.transfers === 1 ? '' : 's'}`
+      : `換乘 ${option.itinerary.transfers} 次`;
+  const walkingSourceLabel = option.walkingSource === 'routed'
+    ? language === 'en' ? 'Road-routed walk' : '按行人道路計算'
+    : language === 'en' ? 'Walking estimate' : '步行時間為估算';
 
   return (
     <View style={[styles.card, selected && styles.cardSelected]}>
@@ -56,7 +73,7 @@ export function JourneyOptionCard({
           </View>
           <View style={styles.arrivalBlock}>
             {rank === 0 ? (
-              <Text style={styles.recommended}>{t(`journey.modes.${mode}`)}</Text>
+              <Text style={styles.recommended}>{POLICY_LABELS[policy][language]}</Text>
             ) : null}
             <Text style={styles.arrival}>{t('journey.arrive')} {arrival}</Text>
           </View>
@@ -69,17 +86,22 @@ export function JourneyOptionCard({
         ) : null}
 
         <View style={styles.metrics}>
-          <Text style={styles.metric}>{t('journey.walk')} {Math.round(option.walkingMinutes)} {t('eta.min')}</Text>
+          <Text style={[styles.metric, option.itinerary.isDirect && styles.directMetric]}>{transferLabel}</Text>
+          <Text style={styles.metric}>
+            {t('journey.walk')} {Math.round(option.walkingMeters)} m · {Math.round(option.walkingMinutes)} {t('eta.min')}
+          </Text>
           <Text style={styles.metric}>{t('journey.wait')} {option.waitMin} {t('eta.min')}</Text>
-          <Text style={styles.metric}>{t('journey.transfers')} {option.itinerary.transfers}</Text>
         </View>
 
         <View style={styles.statusRow}>
+          <Text style={[styles.status, option.walkingSource === 'routed' && styles.statusRouted]}>
+            {walkingSourceLabel}
+          </Text>
           <Text style={[styles.status, option.waitStatus === 'live' && styles.statusLive]}>
             {option.waitStatus === 'live' ? '● ' : ''}{t(`journey.etaStatus.${option.waitStatus}`)}
           </Text>
-          {!option.catchable ? <Text style={styles.warning}>{t('journey.nextServiceShort')}</Text> : null}
         </View>
+        {!option.catchable ? <Text style={styles.warning}>{t('journey.nextServiceShort')}</Text> : null}
       </Pressable>
 
       {expanded ? (
@@ -90,7 +112,7 @@ export function JourneyOptionCard({
               {t('journey.walkToBoard', {
                 minutes: Math.round(option.walkToStationMin),
                 station: hubName(option.boardHub.id),
-              })}
+              })} ({Math.round(option.walkToStationMeters)} m)
             </Text>
           </View>
           {option.itinerary.legs.map((leg, index) => (
@@ -106,7 +128,7 @@ export function JourneyOptionCard({
           <View style={styles.detailRow}>
             <Text style={styles.stepIndex}>{option.itinerary.legs.length + 2}</Text>
             <Text style={styles.detailText}>
-              {t('journey.walkToDestination', { minutes: Math.round(option.walkFromStationMin) })}
+              {t('journey.walkToDestination', { minutes: Math.round(option.walkFromStationMin) })} ({Math.round(option.walkFromStationMeters)} m)
             </Text>
           </View>
           {option.boardStopId && option.boardRoute ? (
@@ -153,10 +175,12 @@ const styles = StyleSheet.create({
   routeTitle: { marginTop: 10, color: COLORS.textPrimary, fontSize: 14, fontWeight: '700', lineHeight: 20 },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 11 },
   metric: { color: COLORS.textSecondary, fontSize: 11, backgroundColor: COLORS.bgRaised, borderRadius: 9, paddingHorizontal: 8, paddingVertical: 5 },
+  directMetric: { color: COLORS.jade, backgroundColor: '#E7F6F3', fontWeight: '700' },
   statusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 10 },
   status: { color: COLORS.textTertiary, fontSize: 10 },
+  statusRouted: { color: COLORS.jade, fontWeight: '600' },
   statusLive: { color: COLORS.etaUrgent, fontWeight: '700' },
-  warning: { color: COLORS.etaWarning, fontSize: 10, textAlign: 'right' },
+  warning: { color: COLORS.etaWarning, fontSize: 10, textAlign: 'right', marginTop: 6 },
   details: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border, padding: 15, gap: 10, backgroundColor: COLORS.bgRaised },
   detailRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   stepIndex: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#E7F6F3', color: COLORS.jade, fontSize: 10, fontWeight: '700', textAlign: 'center', lineHeight: 22 },

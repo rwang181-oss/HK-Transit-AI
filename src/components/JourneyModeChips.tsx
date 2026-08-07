@@ -1,20 +1,32 @@
 import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import type { JourneyMode, WeatherSnapshot } from '@/src/journey/model/types';
-import { smartModeForWeather } from '@/src/journey/comfort/comfortEngine';
+import type { JourneyPolicy } from '@/src/journey/model/types';
 import { COLORS } from '@/src/utils/constants';
 
-const MODES: JourneyMode[] = ['recommended', 'fastest', 'shade', 'rain', 'indoor'];
+const POLICIES: JourneyPolicy[] = [
+  'recommended',
+  'direct',
+  'oneTransfer',
+  'fastest',
+  'lessWalking',
+];
 
 interface JourneyModeChipsProps {
-  value: JourneyMode;
-  onChange: (mode: JourneyMode) => void;
-  weather?: WeatherSnapshot;
+  value: JourneyPolicy;
+  onChange: (policy: JourneyPolicy) => void;
 }
 
-export function JourneyModeChips({ value, onChange, weather }: JourneyModeChipsProps) {
-  const { t } = useTranslation();
-  const suggested = weather ? smartModeForWeather(weather) : 'recommended';
+const LABELS: Record<JourneyPolicy, { en: string; zh: string }> = {
+  recommended: { en: 'Comprehensive', zh: '綜合推薦' },
+  direct: { en: 'Direct first', zh: '直達優先' },
+  oneTransfer: { en: 'At most 1 transfer', zh: '最多一次換乘' },
+  fastest: { en: 'Fastest', zh: '最快' },
+  lessWalking: { en: 'Less walking', zh: '少步行' },
+};
+
+export function JourneyModeChips({ value, onChange }: JourneyModeChipsProps) {
+  const { i18n } = useTranslation();
+  const language = i18n.language === 'en' ? 'en' : 'zh';
 
   return (
     <ScrollView
@@ -22,20 +34,19 @@ export function JourneyModeChips({ value, onChange, weather }: JourneyModeChipsP
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.row}
     >
-      {MODES.map((mode) => {
-        const active = value === mode;
+      {POLICIES.map((policy) => {
+        const active = value === policy;
         return (
           <Pressable
-            key={mode}
+            key={policy}
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
-            onPress={() => onChange(mode)}
+            onPress={() => onChange(policy)}
             style={[styles.chip, active && styles.chipActive]}
           >
             <Text style={[styles.label, active && styles.labelActive]}>
-              {t(`journey.modes.${mode}`)}
+              {LABELS[policy][language]}
             </Text>
-            {suggested === mode ? <Text style={styles.suggested}>•</Text> : null}
           </Pressable>
         );
       })}
@@ -54,10 +65,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
   },
   chipActive: { borderColor: COLORS.jade, backgroundColor: '#E7F6F3' },
   label: { color: COLORS.textSecondary, fontSize: 12, fontWeight: '600' },
   labelActive: { color: COLORS.jade, fontWeight: '700' },
-  suggested: { color: COLORS.jade, fontSize: 15, lineHeight: 15 },
 });
