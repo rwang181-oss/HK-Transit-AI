@@ -19,12 +19,20 @@ export interface Itinerary {
   isDirect: boolean;
 }
 
+export interface JourneySearchOptions {
+  transferPenaltyMinutes?: number;
+  transferWalkBufferMinutes?: number;
+  maxTransfers?: number;
+}
+
 interface QueueNode {
+  stateKey: string;
   hubId: string;
+  serviceKey: string;
+  transfers: number;
   cost: number;
 }
 
-/** Minimal binary min-heap for Dijkstra. */
 class MinHeap {
   private items: QueueNode[] = [];
   size() {
@@ -63,78 +71,104 @@ class MinHeap {
 
 interface PrevEntry {
   edge: Edge;
-  prevHubId: string;
+  prevStateKey: string;
 }
 
-/**
- * Dijkstra shortest-time search. Returns the single best itinerary.
- */
+function serviceKeyFor(edge: Edge): string {
+  return edge.kind === 'ride' ? `${edge.provider}:${edge.route}:${edge.bound}` : '';
+}
+
+function stateKey(hubId: string, serviceKey: string, transfers: number): string {
+  return `${hubId}|${serviceKey || 'none'}|${transfers}`;
+}
+
 export function planJourney(
   graph: Graph,
   fromHubId: string,
-  toHubId: string
+  toHubId: string,
+  options: JourneySearchOptions = {}
 ): Itinerary | null {
   if (fromHubId === toHubId) return null;
-  if (!graph.hubById.has(fromHubId) || !graph.hubById.has(toHubId)) {
-    return null;
-  }
+  if (!graph.hubById.has(fromHubId) || !graph.hubById.has(toHubId)) return null;
 
-  const dist = new Map<string, number>();
+  const transferPenaltyMinutes = options.transferPenaltyMinutes ?? 10;
+  const transferWalkBufferMinutes = options.transferWalkBufferMinutes ?? 2;
+  const maxTransfers = options.maxTransfers ?? 2;
+  const startKey = stateKey(fromHubId, '', 0);
+  const dist = new Map<string, number>([[startKey, 0]]);
   const prev = new Map<string, PrevEntry>();
   const heap = new MinHeap();
-  dist.set(fromHubId, 0);
-  heap.push({ hubId: fromHubId, cost: 0 });
+  heap.push({ stateKey: startKey, hubId: fromHubId, serviceKey: '', transfers: 0, cost: 0 });
+  let destinationKey: string | null = null;
 
   while (heap.size() > 0) {
     const node = heap.pop()!;
-    if (node.cost > (dist.get(node.hubId) ?? Infinity)) continue;
-    if (node.hubId === toHubId) break;
+    if (node.cost > (dist.get(node.stateKey) ?? Infinity)) continue;
+    if (node.hubId === toHubId) {
+      destinationKey = node.stateKey;
+      break;
+    }
 
-    const edges = graph.adjacency.get(node.hubId) || [];
-    for (const edge of edges) {
-      const nd = node.cost + edge.weight;
-      const cur = dist.get(edge.to) ?? Infinity;
-      if (nd < cur) {
-        dist.set(edge.to, nd);
-        prev.set(edge.to, { edge, prevHubId: node.hubId });
-        heap.push({ hubId: edge.to, cost: nd });
-      }
+    for (const edge of graph.adjacency.get(node.hubId) || []) {
+      const nextServiceKey = edge.kind === 'ride' ? serviceKeyFor(edge) : node.serviceKey;
+      const changesService =
+        edge.kind === 'ride' && Boolean(node.serviceKey) && nextServiceKey !== node.serviceKey;
+      const nextTransfers = node.transfers + (changesService ? 1 : 0);
+      if (nextTransfers > maxTransfers) continue;
+
+      const generalizedExtra =
+        (changesService ? transferPenaltyMinutes : 0) +
+        (edge.kind === 'transfer' ? transferWalkBufferMinutes : 0);
+      const nextCost = node.cost + edge.weight + generalizedExtra;
+      const nextKey = stateKey(edge.to, nextServiceKey, nextTransfers);
+      if (nextCost >= (dist.get(nextKey) ?? Infinity)) continue;
+
+      dist.set(nextKey, nextCost);
+      prev.set(nextKey, { edge, prevStateKey: node.stateKey });
+      heap.push({
+        stateKey: nextKey,
+        hubId: edge.to,
+        serviceKey: nextServiceKey,
+        transfers: nextTransfers,
+        cost: nextCost,
+      });
     }
   }
 
-  if (!prev.has(toHubId)) return null;
+  if (!destinationKey) return null;
 
-  // Reconstruct path
   const legs: ItineraryLeg[] = [];
-  let cur = toHubId;
-  while (cur !== fromHubId) {
-    const entry = prev.get(cur)!;
-    const fromHub = graph.hubById.get(entry.prevHubId)!;
-    const toHub = graph.hubById.get(cur)!;
+  let currentKey = destinationKey;
+  while (currentKey !== startKey) {
+    const entry = prev.get(currentKey);
+    if (!entry) return null;
+    const fromHubIdForLeg = entry.prevStateKey.split('|')[0];
+    const fromHub = graph.hubById.get(fromHubIdForLeg);
+    const toHub = graph.hubById.get(entry.edge.to);
+    if (!fromHub || !toHub) return null;
     legs.unshift({
       provider: entry.edge.provider,
       route: entry.edge.route,
       bound: entry.edge.bound,
-      fromHubId: entry.prevHubId,
-      toHubId: cur,
+      fromHubId: fromHubIdForLeg,
+      toHubId: entry.edge.to,
       fromName: fromHub.name_en,
       toName: toHub.name_en,
       minutes: entry.edge.weight,
       kind: entry.edge.kind,
     });
-    cur = entry.prevHubId;
+    currentKey = entry.prevStateKey;
   }
 
-  // Merge consecutive ride legs on the same route into single legs
   const merged: ItineraryLeg[] = [];
   for (const leg of legs) {
     const last = merged[merged.length - 1];
     if (
       leg.kind === 'ride' &&
-      last &&
-      last.kind === 'ride' &&
+      last?.kind === 'ride' &&
       last.route === leg.route &&
-      last.provider === leg.provider
+      last.provider === leg.provider &&
+      last.bound === leg.bound
     ) {
       last.toHubId = leg.toHubId;
       last.toName = leg.toName;
@@ -144,13 +178,12 @@ export function planJourney(
     }
   }
 
-  const totalMinutes = merged.reduce((s, l) => s + l.minutes, 0);
-  const transfers = merged.filter((l) => l.kind === 'ride').length - 1;
-
+  const totalMinutes = merged.reduce((sum, leg) => sum + leg.minutes, 0);
+  const transfers = Math.max(0, merged.filter((leg) => leg.kind === 'ride').length - 1);
   return {
     legs: merged,
     totalMinutes: Math.round(totalMinutes),
-    transfers: Math.max(0, transfers),
-    isDirect: merged.filter((l) => l.kind === 'ride').length === 1,
+    transfers,
+    isDirect: transfers === 0,
   };
 }
