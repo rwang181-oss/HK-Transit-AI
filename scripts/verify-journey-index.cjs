@@ -3,16 +3,22 @@ const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
 const DIR = path.join(ROOT, 'public', 'data', 'journey');
-const EYE_HOSPITAL = { lat: 22.3150, lng: 114.1810 };
-const SCHOOL_VILLAGE = { lat: 22.3420, lng: 114.1980 };
+// Real-world coordinates for the boarding area used by the 203E regression.
+const EYE_HOSPITAL = { lat: 22.32470, lng: 114.18483 };
+const SCHOOL_VILLAGE = { lat: 22.34526, lng: 114.20479 };
+const MAX_ROUTE_NEIGHBORS_BYTES = 8_000_000;
 
 function fail(message) {
   console.error(`journey-index verification failed: ${message}`);
   process.exit(1);
 }
 
+function filePath(name) {
+  return path.join(DIR, name);
+}
+
 function read(name) {
-  const file = path.join(DIR, name);
+  const file = filePath(name);
   if (!fs.existsSync(file)) fail(`missing ${name}`);
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -55,6 +61,10 @@ if (!Array.isArray(hubs) || hubs.length <= 1000) fail(`expected >1000 hubs, got 
 if (!routes || Object.keys(routes).length <= 100) fail(`expected >100 routes, got ${Object.keys(routes || {}).length}`);
 if (!cells || Object.keys(cells).length <= 100) fail(`expected >100 cells, got ${Object.keys(cells || {}).length}`);
 if (!routeNeighbors || typeof routeNeighbors !== 'object') fail('route-neighbors.json must be an object');
+const neighborBytes = fs.statSync(filePath('route-neighbors.json')).size;
+if (neighborBytes > MAX_ROUTE_NEIGHBORS_BYTES) {
+  fail(`route-neighbors.json is too large for a mobile-first index: ${neighborBytes} bytes`);
+}
 
 const hubById = new Map(hubs.map((hub) => [hub.id, hub]));
 const routeEntries = Object.entries(routes);
@@ -68,6 +78,14 @@ for (const [routeKey, route] of routeEntries) {
     if (!Number.isFinite(value)) fail(`${routeKey} has non-finite cumulative time`);
     if (index > 0 && value < Number(route.cumulativeMinutes[index - 1])) {
       fail(`${routeKey} cumulativeMinutes is not monotonic`);
+    }
+  }
+  const points = routeNeighbors[routeKey];
+  if (!Array.isArray(points)) fail(`${routeKey} transfer-point list missing`);
+  for (const point of points) {
+    if (!hubById.has(point.hubId)) fail(`${routeKey} transfer point references missing hub ${point.hubId}`);
+    if (!Number.isInteger(point.seq) || point.seq < 0 || point.seq >= route.hubs.length) {
+      fail(`${routeKey} transfer point has invalid sequence ${point.seq}`);
     }
   }
 }
@@ -107,4 +125,4 @@ if (!regressionOk) {
   fail('203E does not connect the Eye Hospital area to a later School Village area hub');
 }
 
-console.log(`journey-index verification: PASS (${hubs.length} hubs, ${Object.keys(routes).length} routes, ${Object.keys(cells).length} cells)`);
+console.log(`journey-index verification: PASS (${hubs.length} hubs, ${Object.keys(routes).length} routes, ${Object.keys(cells).length} cells, ${neighborBytes} transfer-index bytes)`);
