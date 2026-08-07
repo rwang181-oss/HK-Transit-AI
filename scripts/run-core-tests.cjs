@@ -12,6 +12,7 @@ if (compile.status !== 0) {
 for (const testFile of [
   'tests/core/run-core-tests.cjs',
   'tests/core/kmb-topology.test.cjs',
+  'tests/core/journey-data-loader.test.cjs',
   'tests/core/journey-policy.test.cjs',
   'tests/core/candidate-pools.test.cjs',
   'tests/core/walking-router.test.cjs',
