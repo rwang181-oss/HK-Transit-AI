@@ -1,6 +1,6 @@
-import type { Graph } from '@/src/journey/graph/graphBuilder';
-import type { StopHub } from '@/src/journey/graph/stopMerger';
-import { haversineMeters } from '@/src/journey/graph/travelTime';
+import type { Graph } from '../graph/graphBuilder';
+import type { StopHub } from '../graph/stopMerger';
+import { haversineMeters } from '../graph/travelTime';
 
 export interface CandidatePoolItem {
   routeKey: string;
