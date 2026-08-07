@@ -32,7 +32,8 @@
       "themeColor": "#C41230",
       "backgroundColor": "#F4F6F8",
       "display": "standalone",
-      "orientation": "portrait"
+      "orientation": "portrait",
+      "bundler": "metro"
     },
     "plugins": [
       "expo-router",

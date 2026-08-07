@@ -1,80 +1,56 @@
 # iOS Handoff
 
-## Current iOS-ready pieces
+## Preserved native architecture
 
-- Expo Router application structure
-- Shared TypeScript journey, comfort and realtime modules
-- `com.rwang181.hktransitai` placeholder bundle identifier
-- foreground location permission copy
-- EAS development/preview/production profiles
-- automatic light/dark appearance setting
-- app icon
-- native fallback that opens Apple Maps
+This update intentionally keeps web-specific behaviour behind platform boundaries:
 
-## Remaining native work
+- Expo Router remains the application shell.
+- Journey planning, realtime timing, weather, caching and Zustand stores remain shared TypeScript modules.
+- `app.json` retains the iOS bundle identifier `com.rwang181.hktransitai` and foreground-location permission copy.
+- `eas.json` retains development, preview and production build profiles.
+- `TransitMap` keeps a native Apple Maps handoff while the high-DPI Leaflet implementation runs only on web.
+- The live-navigation modal uses React Native primitives and can be reused in the native build.
 
-### 1. Confirm identity
+## Required native map adapter
 
-Replace the placeholder bundle identifier if the owner uses another Apple Developer identifier. Configure the EAS project and signing team.
-
-### 2. Native map adapter
-
-Replace the native fallback in `src/components/TransitMap.tsx` with a platform-specific component, for example:
+Before App Store submission, split the map boundary into platform files:
 
 ```text
-TransitMap.web.tsx      Leaflet
-TransitMap.ios.tsx      Apple Maps through a supported React Native map layer
+TransitMap.web.tsx      Leaflet + CARTO tiles
+TransitMap.ios.tsx      Apple MapKit through a maintained React Native adapter
 TransitMap.android.tsx  Android map implementation
 ```
 
-The adapter must support:
+The iOS adapter must support start/end/current markers, selected-route polylines, fit-to-route bounds, accessibility labels and safe handling of API credentials.
 
-- start/end/current markers
-- selected journey polyline
-- fit-to-route bounds
-- accessibility labels
-- no embedded unrestricted paid API key
+## Navigation and privacy
 
-### 3. Improve pedestrian geometry
+The current product uses foreground location only. Do not add background location until the navigation experience, battery behaviour, privacy policy, user controls and App Store justification are complete. Keep the existing explicit permission-denied state and provide a Settings recovery path in the native build.
 
-Before presenting turn-by-turn directions inside the app, add a licensed pedestrian routing source or an on-device pedestrian graph. Current geometry is only a sequence of major waypoints.
-
-### 4. Navigation lifecycle
-
-The MVP is foreground-only. Do not request background location until the feature, privacy disclosure, battery handling and App Store justification are complete. Add native motion/activity integration only after privacy review.
-
-### 5. TestFlight gate
+## Build and TestFlight gate
 
 ```bash
-npm install
-npm run data:refresh
+npm ci
 npm run verify
-npm test
+npm run build:web
 npx expo prebuild --clean
 npx expo run:ios
-# or configure EAS then:
+# After linking the Expo/Apple accounts:
 eas build --platform ios --profile preview
+eas submit --platform ios --profile production
 ```
 
-Test on a physical iPhone:
+Test on physical iPhones with:
 
-- denied/allowed location permission
+- denied and allowed location permissions
 - Traditional Chinese and English
-- map fallback/native adapter
-- foreground speed recalibration
-- incoming call/background/resume behaviour
-- low network and no live ETA
-- accessibility text size and VoiceOver
+- compact and large Dynamic Type settings
+- VoiceOver
+- weak network and missing ETA responses
+- foreground/background/resume transitions
+- route selection, live modal, stop tracking and stopping navigation
+- MapKit route rendering and Apple Maps handoff
 
-### 6. App Store materials
+## App Store materials
 
-Prepare:
-
-- privacy policy
-- location data disclosure
-- support URL
-- screenshots in both languages
-- description that labels comfort and walking values as estimates
-- data source acknowledgements
-
-Do not claim exact covered walkway, shade or indoor routing until verified segment data is installed.
+Prepare a privacy policy, support URL, location-data disclosure, bilingual screenshots, source acknowledgements and copy that clearly labels comfort/walking values as estimates. The repository supports an App Store production path, but signing and Apple App Review remain external release gates and approval cannot be guaranteed by code alone.

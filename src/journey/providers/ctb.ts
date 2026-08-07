@@ -71,6 +71,13 @@ export const ctbProvider: TransitProvider = {
     }));
   },
 
+  async fetchTopology() {
+    return {
+      stops: data.stops.map((stop) => ({ ...stop, provider: 'CTB' as const })),
+      links: data.routeStops.map((link) => ({ ...link, provider: 'CTB' as const })),
+    };
+  },
+
   async fetchETA(stopId: string, route: string): Promise<ETA[]> {
     const payload = await fetchJson<any>(
       `${API_BASE}/eta/ctb/${stopId}/${route}`,

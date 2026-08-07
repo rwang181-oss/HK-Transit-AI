@@ -25,6 +25,8 @@
     "src/journey/providers/gmbParser.ts",
     "src/journey/realtime/departureSelector.ts",
     "src/journey/realtime/navigationTiming.ts",
-    "src/journey/providers/routeDisplay.ts"
+    "src/journey/providers/routeDisplay.ts",
+    "src/utils/requestCache.ts",
+    "src/utils/asyncPool.ts"
   ]
 }

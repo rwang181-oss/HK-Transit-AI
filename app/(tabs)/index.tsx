@@ -28,11 +28,39 @@ function providerSummary(item: PlaceSuggestion, translate: (key: string) => stri
   return (item.providers || []).map((provider) => translate(`providers.${provider}`)).join(' · ');
 }
 
+function localSuggestions(
+  query: string,
+  searchStops: ReturnType<typeof useJourneyStore.getState>['searchStops']
+): PlaceSuggestion[] {
+  return searchStops(query).slice(0, 8).map((hub) => ({
+    id: `hub:${hub.id}`,
+    kind: 'hub' as const,
+    hubId: hub.id,
+    lat: hub.lat,
+    lng: hub.lng,
+    name: hub.name_en || hub.name_tc || hub.name_sc,
+    secondary: hub.name_tc || hub.name_sc,
+    providers: [...new Set(hub.members.map((member) => member.provider))],
+  }));
+}
+
 export default function JourneyScreen() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const router = useRouter();
-  const { status, error, dataWarnings, loadData, searchAny } = useJourneyStore();
-  const { position, loading: locationLoading, requestPermission, getPosition } = useLocationStore();
+  const {
+    status,
+    error,
+    dataWarnings,
+    loadData,
+    searchStops,
+    searchAny,
+  } = useJourneyStore();
+  const {
+    position,
+    loading: locationLoading,
+    requestPermission,
+    getPosition,
+  } = useLocationStore();
   const { weather, refresh: refreshWeather } = useWeatherStore();
 
   const [fromPoint, setFromPoint] = useState<TripPoint | null>(null);
@@ -42,25 +70,29 @@ export default function JourneyScreen() {
   const [activeField, setActiveField] = useState<Target | null>(null);
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
+  const [showMap, setShowMap] = useState(false);
 
-  const isEnglish = i18n.language === 'en';
   const myLocationLabel = t('journey.myLocation');
 
   useEffect(() => {
-    loadData();
-    refreshWeather();
-    void (async () => {
-      const allowed = await requestPermission();
-      if (allowed) await getPosition();
-    })();
-  }, []);
+    const ambientTimer = setTimeout(() => {
+      void refreshWeather();
+      void (async () => {
+        const allowed = await requestPermission();
+        if (allowed) await getPosition();
+      })();
+    }, 420);
+    return () => {
+      clearTimeout(ambientTimer);
+    };
+  }, [refreshWeather, requestPermission, getPosition]);
 
   useEffect(() => {
     if (!position || fromPoint) return;
     const point = { ...position, name: myLocationLabel };
     setFromPoint(point);
     setFromQuery(myLocationLabel);
-  }, [position, myLocationLabel]);
+  }, [position, fromPoint, myLocationLabel]);
 
   const activeQuery = activeField === 'from' ? fromQuery : activeField === 'to' ? toQuery : '';
 
@@ -70,23 +102,40 @@ export default function JourneyScreen() {
     if (!activeField || query.length < 2) {
       setSuggestions([]);
       setSearching(false);
-      return;
+      return undefined;
     }
+
+    const topologyTimer = status === 'idle'
+      ? setTimeout(() => void loadData(), 1_200)
+      : null;
+    const local = localSuggestions(query, searchStops);
+    setSuggestions(local);
+    setSearching(local.length === 0);
+
+    if (local.length >= 5) {
+      return () => {
+        cancelled = true;
+        if (topologyTimer) clearTimeout(topologyTimer);
+      };
+    }
+
     const timer = setTimeout(() => {
       setSearching(true);
-      searchAny(query)
+      void searchAny(query)
         .then((items) => {
-          if (!cancelled) setSuggestions(items);
+          if (!cancelled) setSuggestions(items.slice(0, 8));
         })
         .finally(() => {
           if (!cancelled) setSearching(false);
         });
-    }, 350);
+    }, 650);
+
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      if (topologyTimer) clearTimeout(topologyTimer);
     };
-  }, [activeField, activeQuery, searchAny]);
+  }, [activeField, activeQuery, searchStops, searchAny, status, loadData]);
 
   const mapPoints = useMemo(() => {
     const items: Array<{
@@ -147,6 +196,14 @@ export default function JourneyScreen() {
     setToQuery(fromPoint?.name || '');
   };
 
+  const toggleMap = () => {
+    setShowMap((current) => {
+      const next = !current;
+      if (next && !activeField) setActiveField(!fromPoint ? 'from' : 'to');
+      return next;
+    });
+  };
+
   const planJourney = () => {
     if (!fromPoint || !toPoint) return;
     const params = new URLSearchParams({
@@ -165,6 +222,7 @@ export default function JourneyScreen() {
     weather.uvIndex == null ? null : `UV ${weather.uvIndex}`,
     t(`weather.rain.${weather.rainIntensity}`),
   ].filter(Boolean);
+  const readyToPlan = Boolean(fromPoint && toPoint);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -172,82 +230,83 @@ export default function JourneyScreen() {
         style={styles.container}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       >
-        <View style={styles.brandRow}>
-          <View>
-            <Text style={styles.eyebrow}>{t('home.cityLabel')}</Text>
-            <Text style={styles.brand}>HK Transit AI</Text>
-          </View>
-          <View style={styles.weatherPill}>
-            <Text style={styles.weatherText}>{weatherParts.join(' · ')}</Text>
-          </View>
-        </View>
-
-        <Text style={styles.heroTitle}>{t('journey.heroTitle')}</Text>
-        <Text style={styles.heroSubtitle}>{t('journey.heroSubtitle')}</Text>
-
-        <View style={styles.searchCard}>
-          <View style={styles.routeRail}>
-            <View style={styles.startDot} />
-            <View style={styles.railLine} />
-            <View style={styles.endDot} />
-          </View>
-          <View style={styles.fields}>
-            <View style={styles.fieldRow}>
-              <TextInput
-                accessibilityLabel={t('journey.from')}
-                value={fromQuery}
-                onFocus={() => setActiveField('from')}
-                onChangeText={(value) => {
-                  setFromQuery(value);
-                  setFromPoint(null);
-                  setActiveField('from');
-                }}
-                placeholder={t('journey.fromPlaceholder')}
-                placeholderTextColor={COLORS.textTertiary}
-                style={[styles.input, activeField === 'from' && styles.inputActive]}
-              />
-              <Pressable style={styles.locationButton} onPress={useCurrentLocation}>
-                {locationLoading ? (
-                  <ActivityIndicator size="small" color={COLORS.jade} />
-                ) : (
-                  <Text style={styles.locationIcon}>◎</Text>
-                )}
-              </Pressable>
+        <View style={styles.page}>
+          <View style={styles.brandRow}>
+            <View>
+              <Text style={styles.eyebrow}>{t('home.cityLabel')}</Text>
+              <Text style={styles.brand}>HK Transit AI</Text>
             </View>
-            <View style={styles.divider} />
-            <TextInput
-              accessibilityLabel={t('journey.to')}
-              value={toQuery}
-              onFocus={() => setActiveField('to')}
-              onChangeText={(value) => {
-                setToQuery(value);
-                setToPoint(null);
-                setActiveField('to');
-              }}
-              placeholder={t('journey.toPlaceholder')}
-              placeholderTextColor={COLORS.textTertiary}
-              style={[styles.input, activeField === 'to' && styles.inputActive]}
-            />
-          </View>
-          <Pressable style={styles.swapButton} onPress={swapPoints}>
-            <Text style={styles.swapText}>⇅</Text>
-          </Pressable>
-        </View>
-
-        {activeField ? (
-          <Text style={styles.mapHint}>{t('journey.searchOrTapMap')}</Text>
-        ) : null}
-
-        {(searching || suggestions.length > 0) && (
-          <View style={styles.suggestionCard}>
-            {searching ? (
-              <View style={styles.searchingRow}>
-                <ActivityIndicator size="small" color={COLORS.hkRed} />
-                <Text style={styles.searchingText}>{t('journey.searching')}</Text>
+            {weatherParts.length > 0 ? (
+              <View style={styles.weatherPill}>
+                <Text style={styles.weatherText}>{weatherParts.join(' · ')}</Text>
               </View>
-            ) : (
-              suggestions.map((item) => (
+            ) : null}
+          </View>
+
+          <View style={styles.searchCard}>
+            <View style={styles.routeRail}>
+              <View style={styles.startDot} />
+              <View style={styles.railLine} />
+              <View style={styles.endDot} />
+            </View>
+            <View style={styles.fields}>
+              <View style={styles.fieldRow}>
+                <TextInput
+                  accessibilityLabel={t('journey.from')}
+                  value={fromQuery}
+                  onFocus={() => setActiveField('from')}
+                  onChangeText={(value) => {
+                    setFromQuery(value);
+                    setFromPoint(null);
+                    setActiveField('from');
+                  }}
+                  placeholder={t('journey.fromPlaceholder')}
+                  placeholderTextColor={COLORS.textTertiary}
+                  style={[styles.input, activeField === 'from' && styles.inputActive]}
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t('journey.myLocation')}
+                  style={styles.locationButton}
+                  onPress={useCurrentLocation}
+                >
+                  {locationLoading ? (
+                    <ActivityIndicator size="small" color={COLORS.jade} />
+                  ) : (
+                    <Text style={styles.locationIcon}>◎</Text>
+                  )}
+                </Pressable>
+              </View>
+              <View style={styles.divider} />
+              <TextInput
+                accessibilityLabel={t('journey.to')}
+                value={toQuery}
+                onFocus={() => setActiveField('to')}
+                onChangeText={(value) => {
+                  setToQuery(value);
+                  setToPoint(null);
+                  setActiveField('to');
+                }}
+                placeholder={t('journey.toPlaceholder')}
+                placeholderTextColor={COLORS.textTertiary}
+                style={[styles.input, activeField === 'to' && styles.inputActive]}
+              />
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('journey.swap')}
+              style={styles.swapButton}
+              onPress={swapPoints}
+            >
+              <Text style={styles.swapText}>⇅</Text>
+            </Pressable>
+          </View>
+
+          {(searching || suggestions.length > 0) ? (
+            <View style={styles.suggestionCard}>
+              {suggestions.map((item) => (
                 <Pressable
                   key={item.id}
                   onPress={() => selectSuggestion(item)}
@@ -263,68 +322,73 @@ export default function JourneyScreen() {
                     </Text>
                   </View>
                 </Pressable>
-              ))
-            )}
-          </View>
-        )}
+              ))}
+              {searching ? (
+                <View style={styles.searchingRow}>
+                  <ActivityIndicator size="small" color={COLORS.hkRed} />
+                  <Text style={styles.searchingText}>{t('journey.searching')}</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
 
-        <View style={styles.mapFrame}>
-          <TransitMap
-            center={center}
-            points={mapPoints}
-            height={330}
-            onPickPoint={selectMapPoint}
-          />
-          <View pointerEvents="none" style={styles.mapBadge}>
-            <Text style={styles.mapBadgeText}>{t('journey.localFirst')}</Text>
-          </View>
+          <Pressable style={styles.mapToggle} onPress={toggleMap}>
+            <Text style={styles.mapToggleIcon}>⌖</Text>
+            <View style={styles.mapToggleTextBlock}>
+              <Text style={styles.mapToggleTitle}>
+                {showMap ? t('journey.hideMapPicker') : t('journey.showMapPicker')}
+              </Text>
+              {showMap ? <Text style={styles.mapToggleHint}>{t('journey.mapPickerHint')}</Text> : null}
+            </View>
+            <Text style={styles.mapToggleArrow}>{showMap ? '⌃' : '⌄'}</Text>
+          </Pressable>
+
+          {showMap ? (
+            <View style={styles.mapFrame}>
+              <TransitMap
+                center={center}
+                points={mapPoints}
+                height={270}
+                onPickPoint={selectMapPoint}
+              />
+            </View>
+          ) : null}
+
+          {status === 'loading' ? (
+            <View style={styles.notice}>
+              <ActivityIndicator size="small" color={COLORS.hkRed} />
+              <Text style={styles.noticeText}>{t('journey.loadingData')}</Text>
+            </View>
+          ) : status === 'error' ? (
+            <View style={[styles.notice, styles.errorNotice]}>
+              <Text style={styles.errorText}>{t('journey.dataError')}</Text>
+              <Pressable onPress={() => void loadData()}>
+                <Text style={styles.retryText}>{t('common.retry')}</Text>
+              </Pressable>
+            </View>
+          ) : dataWarnings.length > 0 ? (
+            <Text style={styles.warningText}>{t('journey.cachedDataNotice')}</Text>
+          ) : (
+            <Text style={styles.readyText}>{t('journey.routeDataReady')}</Text>
+          )}
+
+          {error ? <Text style={styles.debugError}>{error}</Text> : null}
         </View>
-
-        {status === 'loading' ? (
-          <View style={styles.notice}>
-            <ActivityIndicator size="small" color={COLORS.hkRed} />
-            <Text style={styles.noticeText}>{t('journey.loadingData')}</Text>
-          </View>
-        ) : status === 'error' ? (
-          <View style={[styles.notice, styles.errorNotice]}>
-            <Text style={styles.errorText}>{t('journey.dataError')}</Text>
-            <Pressable onPress={loadData}><Text style={styles.retryText}>{t('common.retry')}</Text></Pressable>
-          </View>
-        ) : dataWarnings.length > 0 ? (
-          <Text style={styles.warningText}>{t('journey.cachedDataNotice')}</Text>
-        ) : null}
-
-        <Pressable
-          accessibilityRole="button"
-          disabled={!fromPoint || !toPoint || status !== 'ready'}
-          onPress={planJourney}
-          style={[
-            styles.planButton,
-            (!fromPoint || !toPoint || status !== 'ready') && styles.planButtonDisabled,
-          ]}
-        >
-          <Text style={styles.planButtonText}>{t('journey.planComfortRoute')}</Text>
-          <Text style={styles.planArrow}>→</Text>
-        </Pressable>
-
-        <View style={styles.promiseRow}>
-          <View style={styles.promiseItem}>
-            <Text style={styles.promiseIcon}>☂</Text>
-            <Text style={styles.promiseText}>{t('journey.promiseWeather')}</Text>
-          </View>
-          <View style={styles.promiseItem}>
-            <Text style={styles.promiseIcon}>◷</Text>
-            <Text style={styles.promiseText}>{t('journey.promiseRealtime')}</Text>
-          </View>
-          <View style={styles.promiseItem}>
-            <Text style={styles.promiseIcon}>⌁</Text>
-            <Text style={styles.promiseText}>{t('journey.promiseLocal')}</Text>
-          </View>
-        </View>
-
-        {error ? <Text style={styles.debugError}>{error}</Text> : null}
-        <Text style={styles.languageNote}>{isEnglish ? '繁體中文及 English' : '繁體中文及 English'}</Text>
       </ScrollView>
+
+      <View style={styles.fixedAction}>
+        <View style={styles.fixedActionInner}>
+          <Pressable
+            accessibilityRole="button"
+            disabled={!readyToPlan}
+            onPress={planJourney}
+            style={[styles.planButton, !readyToPlan && styles.planButtonDisabled]}
+          >
+            <Text style={styles.planButtonText}>{t('journey.planComfortRoute')}</Text>
+            <Text style={styles.planArrow}>→</Text>
+          </Pressable>
+        </View>
+      </View>
     </SafeAreaView>
   );
 }
@@ -332,55 +396,121 @@ export default function JourneyScreen() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.bgSystem },
   container: { flex: 1 },
-  content: { paddingBottom: 36 },
-  brandRow: { paddingHorizontal: 20, paddingTop: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  eyebrow: { color: COLORS.hkRed, fontSize: 11, fontWeight: '700', letterSpacing: 1.1, textTransform: 'uppercase' },
-  brand: { color: COLORS.textPrimary, fontSize: 19, fontWeight: '800', marginTop: 2 },
-  weatherPill: { backgroundColor: COLORS.bgCard, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 11, paddingVertical: 8, maxWidth: '55%' },
-  weatherText: { color: COLORS.textSecondary, fontSize: 11, fontWeight: '600' },
-  heroTitle: { color: COLORS.textPrimary, fontSize: 32, lineHeight: 39, fontWeight: '800', paddingHorizontal: 20, marginTop: 24, maxWidth: 560 },
-  heroSubtitle: { color: COLORS.textSecondary, fontSize: 14, lineHeight: 21, paddingHorizontal: 20, marginTop: 8, maxWidth: 620 },
-  searchCard: { marginHorizontal: 16, marginTop: 20, backgroundColor: COLORS.bgCard, borderRadius: 22, borderWidth: 1, borderColor: COLORS.border, padding: 13, flexDirection: 'row', alignItems: 'center', shadowColor: '#102A43', shadowOffset: { width: 0, height: 9 }, shadowOpacity: 0.07, shadowRadius: 20, elevation: 3 },
-  routeRail: { width: 22, alignItems: 'center', alignSelf: 'stretch', justifyContent: 'center' },
-  startDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.jade },
-  railLine: { width: 2, flex: 1, minHeight: 28, backgroundColor: COLORS.border, marginVertical: 4 },
-  endDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.hkRed },
-  fields: { flex: 1, marginLeft: 7 },
+  content: { paddingBottom: 20 },
+  page: { width: '100%', maxWidth: 680, alignSelf: 'center' },
+  brandRow: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  eyebrow: { color: COLORS.hkRed, fontSize: 10, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
+  brand: { color: COLORS.textPrimary, fontSize: 18, fontWeight: '800', marginTop: 1 },
+  weatherPill: {
+    backgroundColor: COLORS.bgCard,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    maxWidth: '58%',
+  },
+  weatherText: { color: COLORS.textSecondary, fontSize: 10, fontWeight: '600' },
+  searchCard: {
+    marginHorizontal: 12,
+    marginTop: 4,
+    backgroundColor: COLORS.bgCard,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#102A43',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  routeRail: { width: 20, alignItems: 'center', alignSelf: 'stretch', justifyContent: 'center' },
+  startDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: COLORS.jade },
+  railLine: { width: 2, flex: 1, minHeight: 26, backgroundColor: COLORS.border, marginVertical: 4 },
+  endDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: COLORS.hkRed },
+  fields: { flex: 1, minWidth: 0, marginLeft: 5 },
   fieldRow: { flexDirection: 'row', alignItems: 'center' },
-  input: { flex: 1, minHeight: 45, color: COLORS.textPrimary, fontSize: 15, paddingHorizontal: 10, borderRadius: 12 },
+  input: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 46,
+    color: COLORS.textPrimary,
+    fontSize: 16,
+    paddingHorizontal: 9,
+    borderRadius: 11,
+  },
   inputActive: { backgroundColor: COLORS.bgRaised },
-  divider: { height: 1, backgroundColor: COLORS.border, marginHorizontal: 10 },
-  locationButton: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#E7F6F3', alignItems: 'center', justifyContent: 'center' },
-  locationIcon: { color: COLORS.jade, fontSize: 22, fontWeight: '700' },
-  swapButton: { width: 40, height: 40, borderRadius: 13, backgroundColor: COLORS.bgRaised, alignItems: 'center', justifyContent: 'center', marginLeft: 9 },
-  swapText: { color: COLORS.textPrimary, fontSize: 19, fontWeight: '700' },
-  mapHint: { color: COLORS.jade, fontSize: 11, fontWeight: '600', paddingHorizontal: 20, marginTop: 8 },
-  suggestionCard: { marginHorizontal: 16, marginTop: 9, backgroundColor: COLORS.bgCard, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, overflow: 'hidden', zIndex: 5 },
-  searchingRow: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16 },
-  searchingText: { color: COLORS.textSecondary, fontSize: 13 },
-  suggestionRow: { minHeight: 60, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.border },
-  suggestionIcon: { width: 34, height: 34, borderRadius: 12, backgroundColor: '#E7F6F3', alignItems: 'center', justifyContent: 'center' },
+  divider: { height: 1, backgroundColor: COLORS.border, marginHorizontal: 9 },
+  locationButton: { width: 40, height: 40, borderRadius: 11, backgroundColor: '#E7F6F3', alignItems: 'center', justifyContent: 'center' },
+  locationIcon: { color: COLORS.jade, fontSize: 21, fontWeight: '700' },
+  swapButton: { width: 38, height: 38, borderRadius: 12, backgroundColor: COLORS.bgRaised, alignItems: 'center', justifyContent: 'center', marginLeft: 7 },
+  swapText: { color: COLORS.textPrimary, fontSize: 18, fontWeight: '700' },
+  suggestionCard: { marginHorizontal: 12, marginTop: 7, backgroundColor: COLORS.bgCard, borderRadius: 15, borderWidth: 1, borderColor: COLORS.border, overflow: 'hidden' },
+  searchingRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 14 },
+  searchingText: { color: COLORS.textSecondary, fontSize: 12 },
+  suggestionRow: { minHeight: 55, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.border },
+  suggestionIcon: { width: 31, height: 31, borderRadius: 10, backgroundColor: '#E7F6F3', alignItems: 'center', justifyContent: 'center' },
   placeIcon: { backgroundColor: COLORS.sky },
-  suggestionTextBlock: { flex: 1, marginLeft: 11 },
+  suggestionTextBlock: { flex: 1, minWidth: 0, marginLeft: 10 },
   suggestionName: { color: COLORS.textPrimary, fontSize: 14, fontWeight: '600' },
-  suggestionMeta: { color: COLORS.textTertiary, fontSize: 11, marginTop: 3 },
-  mapFrame: { marginHorizontal: 16, marginTop: 14, position: 'relative' },
-  mapBadge: { position: 'absolute', left: 12, bottom: 12, backgroundColor: 'rgba(16,42,67,0.88)', borderRadius: 11, paddingHorizontal: 10, paddingVertical: 7 },
-  mapBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '600' },
-  notice: { minHeight: 44, marginHorizontal: 18, marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
-  noticeText: { color: COLORS.textSecondary, fontSize: 12 },
+  suggestionMeta: { color: COLORS.textTertiary, fontSize: 10, marginTop: 2 },
+  mapToggle: {
+    marginHorizontal: 12,
+    marginTop: 10,
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.bgCard,
+    paddingHorizontal: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  mapToggleIcon: { color: COLORS.jade, fontSize: 17, width: 27 },
+  mapToggleTextBlock: { flex: 1 },
+  mapToggleTitle: { color: COLORS.textPrimary, fontSize: 13, fontWeight: '700' },
+  mapToggleHint: { color: COLORS.textTertiary, fontSize: 10, marginTop: 2 },
+  mapToggleArrow: { color: COLORS.textSecondary, fontSize: 16 },
+  mapFrame: { marginHorizontal: 12, marginTop: 8 },
+  notice: { minHeight: 40, marginHorizontal: 14, marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  noticeText: { color: COLORS.textSecondary, fontSize: 11 },
   errorNotice: { justifyContent: 'space-between' },
-  errorText: { color: COLORS.hkRed, fontSize: 12 },
-  retryText: { color: COLORS.hkRed, fontSize: 12, fontWeight: '700' },
-  warningText: { color: COLORS.etaWarning, fontSize: 11, textAlign: 'center', marginHorizontal: 20, marginTop: 10 },
-  planButton: { marginHorizontal: 16, marginTop: 15, minHeight: 56, backgroundColor: COLORS.hkRed, borderRadius: 18, paddingHorizontal: 19, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  planButtonDisabled: { opacity: 0.4 },
-  planButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  planArrow: { color: '#FFFFFF', fontSize: 23 },
-  promiseRow: { flexDirection: 'row', gap: 8, marginHorizontal: 16, marginTop: 13 },
-  promiseItem: { flex: 1, minHeight: 68, borderRadius: 16, backgroundColor: COLORS.bgCard, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
-  promiseIcon: { fontSize: 18 },
-  promiseText: { color: COLORS.textSecondary, fontSize: 10, lineHeight: 14, textAlign: 'center', marginTop: 4 },
-  debugError: { color: COLORS.hkRed, fontSize: 10, margin: 16 },
-  languageNote: { textAlign: 'center', color: COLORS.textTertiary, fontSize: 10, marginTop: 18 },
+  errorText: { color: COLORS.hkRed, fontSize: 11 },
+  retryText: { color: COLORS.hkRed, fontSize: 11, fontWeight: '700' },
+  warningText: { color: COLORS.etaWarning, fontSize: 10, textAlign: 'center', marginHorizontal: 18, marginTop: 9 },
+  readyText: { color: COLORS.jade, fontSize: 10, textAlign: 'center', marginTop: 9 },
+  debugError: { color: COLORS.hkRed, fontSize: 9, marginHorizontal: 16, marginTop: 8 },
+  fixedAction: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLORS.border,
+    backgroundColor: COLORS.bgSystem,
+    paddingHorizontal: 12,
+    paddingTop: 9,
+    paddingBottom: 9,
+  },
+  fixedActionInner: { width: '100%', maxWidth: 680, alignSelf: 'center' },
+  planButton: {
+    minHeight: 54,
+    backgroundColor: COLORS.hkRed,
+    borderRadius: 16,
+    paddingHorizontal: 17,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 9,
+  },
+  planButtonDisabled: { opacity: 0.42 },
+  planButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', flexShrink: 1, textAlign: 'center' },
+  planArrow: { color: '#FFFFFF', fontSize: 21, marginLeft: 'auto' },
 });

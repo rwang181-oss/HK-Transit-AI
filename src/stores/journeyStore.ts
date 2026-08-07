@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import type { Stop, RouteStopLink, ProviderId } from '@/src/journey/providers/types';
-import { ALL_PROVIDERS } from '@/src/journey/providers';
+import { getProvider, getStaticProviders } from '@/src/journey/providers';
 import type { StopHub } from '@/src/journey/graph/stopMerger';
 import { mergeStops } from '@/src/journey/graph/stopMerger';
 import type { Edge, Graph } from '@/src/journey/graph/graphBuilder';
@@ -27,11 +27,13 @@ import {
 import { recalculateJourneyEta } from '@/src/journey/realtime/etaEstimator';
 import { selectDepartureEstimate } from '@/src/journey/realtime/departureSelector';
 import { waitAfterWalking } from '@/src/journey/realtime/navigationTiming';
+import { mapWithConcurrency } from '@/src/utils/asyncPool';
 
 const KMB_CACHE_KEY = '@hk-transit-ai/kmb-topology-v2';
 const MAX_WALK_TO_STATION_M = 1_200;
 const MAX_WALK_FROM_STATION_M = 1_200;
-const MAX_CANDIDATES_FOR_ETA = 10;
+const MAX_CANDIDATES_FOR_ETA = 4;
+const ETA_CONCURRENCY = 3;
 const DEFAULT_WAIT_MINUTES: Record<ProviderId, number> = {
   KMB: 8,
   CTB: 8,
@@ -132,8 +134,12 @@ interface CachedTopology {
   cachedAt: string;
 }
 
-async function loadKmbData(): Promise<{ stops: Stop[]; links: RouteStopLink[]; warning?: string }> {
-  try {
+let kmbRefreshPromise: Promise<CachedTopology> | null = null;
+let journeyDataLoad: Promise<void> | null = null;
+
+async function fetchFreshKmbTopology(): Promise<CachedTopology> {
+  if (kmbRefreshPromise) return kmbRefreshPromise;
+  kmbRefreshPromise = (async () => {
     const [stops, routeStops] = await Promise.all([
       kmbAPI.fetchAllStops(),
       kmbAPI.fetchAllRouteStops(),
@@ -157,21 +163,35 @@ async function loadKmbData(): Promise<{ stops: Stop[]; links: RouteStopLink[]; w
       })),
       cachedAt: new Date().toISOString(),
     };
-    AsyncStorage.setItem(KMB_CACHE_KEY, JSON.stringify(topology)).catch(() => undefined);
+    await AsyncStorage.setItem(KMB_CACHE_KEY, JSON.stringify(topology));
     return topology;
+  })().finally(() => {
+    kmbRefreshPromise = null;
+  });
+  return kmbRefreshPromise;
+}
+
+async function loadKmbData(): Promise<{ stops: Stop[]; links: RouteStopLink[]; warning?: string }> {
+  const cachedValue = await AsyncStorage.getItem(KMB_CACHE_KEY);
+  if (cachedValue) {
+    try {
+      const topology = JSON.parse(cachedValue) as CachedTopology;
+      void fetchFreshKmbTopology().catch(() => undefined);
+      return topology;
+    } catch {
+      await AsyncStorage.removeItem(KMB_CACHE_KEY).catch(() => undefined);
+    }
+  }
+
+  try {
+    return await fetchFreshKmbTopology();
   } catch (networkError) {
-    const cached = await AsyncStorage.getItem(KMB_CACHE_KEY);
-    if (!cached) throw networkError;
-    const topology = JSON.parse(cached) as CachedTopology;
-    return {
-      stops: topology.stops,
-      links: topology.links,
-      warning: 'kmbCacheFallback',
-    };
+    throw networkError;
   }
 }
 
-async function loadStaticProvider(provider: (typeof ALL_PROVIDERS)[number]) {
+async function loadStaticProvider(provider: Awaited<ReturnType<typeof getStaticProviders>>[number]) {
+  if (provider.fetchTopology) return provider.fetchTopology();
   const [stops, routes] = await Promise.all([provider.fetchStops(), provider.fetchRoutes()]);
   const nested = await Promise.all(
     routes.map((route) => provider.fetchRouteStops(route.route, route.bound))
@@ -329,9 +349,8 @@ async function fetchDepartureEstimate(
 ): Promise<DepartureEstimate> {
   const fallback = DEFAULT_WAIT_MINUTES[providerId];
   const member = hub.members.find((item) => item.provider === providerId);
-  const provider = ALL_PROVIDERS.find((item) => item.id === providerId);
   const requestedAtMs = Date.now();
-  if (!member || !provider) {
+  if (!member) {
     const estimated = selectDepartureEstimate([], walkToMinutes, fallback);
     return {
       ...estimated,
@@ -341,6 +360,7 @@ async function fetchDepartureEstimate(
   }
 
   try {
+    const provider = await getProvider(providerId);
     const etaRows = await provider.fetchETA(member.stopId, route);
     const times = etaRows
       .filter((row) => !row.bound || row.bound === bound)
@@ -537,25 +557,34 @@ export const useJourneyStore = create<JourneyState>((set, get) => ({
   dataWarnings: [],
 
   loadData: async () => {
-    if (get().status === 'ready' || get().status === 'loading') return;
+    if (get().status === 'ready') return;
+    if (journeyDataLoad) return journeyDataLoad;
+
     set({ status: 'loading', error: null });
-    try {
-      const kmb = await loadKmbData();
-      const staticProviders = ALL_PROVIDERS.filter((provider) => provider.id !== 'KMB');
-      const loaded = await Promise.all(staticProviders.map(loadStaticProvider));
-      const allStops = [kmb.stops, ...loaded.map((item) => item.stops)].flat();
-      const allLinks = [kmb.links, ...loaded.map((item) => item.links)].flat();
-      const graph = buildGraph(allStops, allLinks);
-      set({
-        status: 'ready',
-        hubs: graph.hubs,
-        graph,
-        error: null,
-        dataWarnings: kmb.warning ? [kmb.warning] : [],
-      });
-    } catch (error) {
-      set({ status: 'error', error: String(error) });
-    }
+    journeyDataLoad = (async () => {
+      try {
+        const [kmb, staticProviders] = await Promise.all([
+          loadKmbData(),
+          getStaticProviders(),
+        ]);
+        const loaded = await Promise.all(staticProviders.map(loadStaticProvider));
+        const allStops = [kmb.stops, ...loaded.map((item) => item.stops)].flat();
+        const allLinks = [kmb.links, ...loaded.map((item) => item.links)].flat();
+        const graph = buildGraph(allStops, allLinks);
+        set({
+          status: 'ready',
+          hubs: graph.hubs,
+          graph,
+          error: null,
+          dataWarnings: kmb.warning ? [kmb.warning] : [],
+        });
+      } catch (error) {
+        set({ status: 'error', error: String(error) });
+      }
+    })().finally(() => {
+      journeyDataLoad = null;
+    });
+    return journeyDataLoad;
   },
 
   searchStops: (query) => {
@@ -610,15 +639,17 @@ export const useJourneyStore = create<JourneyState>((set, get) => ({
   plan: async (from, to, weather = DEFAULT_WEATHER) => {
     const graph = get().graph;
     if (!graph || !hasCoordinates(from) || !hasCoordinates(to)) return [];
-    const boardHubs = nearestHubs(get().hubs, from.lat, from.lng, 8, MAX_WALK_TO_STATION_M);
-    const alightHubs = nearestHubs(get().hubs, to.lat, to.lng, 8, MAX_WALK_FROM_STATION_M);
+    const boardHubs = nearestHubs(get().hubs, from.lat, from.lng, 5, MAX_WALK_TO_STATION_M);
+    const alightHubs = nearestHubs(get().hubs, to.lat, to.lng, 5, MAX_WALK_FROM_STATION_M);
     const { hubRoutes, routeEdges } = buildRouteIndexes(graph);
     const direct = buildDirectCandidates(graph, boardHubs, to, from, hubRoutes, routeEdges);
     const transfer = buildTransferCandidates(graph, boardHubs, alightHubs, from, to, direct);
     const candidates = deduplicateCandidates([...direct, ...transfer]);
 
-    const options = await Promise.all(
-      candidates.map(async (candidate, index) => {
+    const options = await mapWithConcurrency(
+      candidates,
+      ETA_CONCURRENCY,
+      async (candidate, index) => {
         const [provider, route, bound] = candidate.routeKey.split(':') as [ProviderId, string, 'O' | 'I'];
         const departure = await fetchDepartureEstimate(
           provider,
@@ -629,11 +660,11 @@ export const useJourneyStore = create<JourneyState>((set, get) => ({
         );
         const itinerary = itineraryForCandidate(candidate);
         return buildOption(candidate, departure, itinerary, graph, from, to, weather, index);
-      })
+      }
     );
 
     return sortJourneyOptions(options, 'recommended');
   },
 
-  getHubById: (id) => get().hubs.find((hub) => hub.id === id),
+  getHubById: (id) => get().graph?.hubById.get(id),
 }));

@@ -1,61 +1,49 @@
 # Project Status
 
-## Completed in this handoff
+## Current web release
 
-- Local-first journey option model and planner integration
-- Five comfort/time ranking modes
-- Transparent confidence and estimate wording
-- Live/estimated/unavailable departure states
-- Non-zero provider wait fallbacks
-- Concurrent candidate ETA requests
-- Geo-aware stable stop merging
-- Corrected Citybus direction reconstruction
-- Correct GMB precise ETA interface after schema-v2 data refresh
-- HKO weather adapter
-- Foreground walking-speed recalibration with dynamic missed-service/headway adjustment
-- Bilingual map-first search/results/tracking UI
-- Route waypoint polylines
-- Expo app identifiers, permissions, EAS config, icon and favicon
-- Core tests and offline source verification
-- Deployment and iOS handoff documents
+The mobile performance and journey-flow update now includes:
 
-## Verification performed in the preparation environment
+- Mobile viewport and safe-area handling without manual page zooming
+- 16 px journey inputs to prevent iPhone Safari focus zoom
+- Always-visible route-search action outside the scrollable content
+- Optional, high-DPI web maps that load only after the user expands them
+- Results-first journey screen with compact preference filters and route cards
+- Route selection that immediately expands the itinerary steps
+- Dedicated live-navigation modal with location permission and tracking errors
+- Cached and deduplicated public-data requests with request timeouts
+- Bounded realtime ETA enrichment instead of unbounded parallel calls
+- Cached route and stop indexes with immediate stale data display during refresh
+- Nearby-stop route discovery using only the ten nearest stop ETA endpoints
+- Shared Expo/TypeScript architecture preserved for native iOS work
 
-- Dependency-free core TypeScript compilation and 22 behavioural tests
+## Verification in this environment
+
+- 25 dependency-free behavioural core tests
+- Offline structural TypeScript validation
 - TS/TSX syntax parsing
-- JSON parsing
-- JavaScript syntax checking
-- Offline structural TypeScript check using `tsconfig.verify.json`
+- Translation-key parity and JSON validation
+- JavaScript syntax validation
+- Mobile UX source-contract verification
+- Handoff structure verification
 
-## Not verifiable in the preparation environment
+The full Expo web export is verified by the GitHub Actions deployment workflow because the preparation container cannot reliably install the complete dependency tree from its internal package mirror.
 
-The environment could not install Expo dependencies because its internal npm registry did not contain required packages. Therefore the following must be run by the receiving agent with normal internet/npm access:
+## iOS readiness boundary
 
-```bash
-npm install
-npm test
-npm run build:web
-```
+The repository remains suitable for an iOS production track: it has an Expo Router application, `com.rwang181.hktransitai`, foreground location permission text, EAS preview/production profiles, shared platform-neutral journey stores and a native Apple Maps fallback. A future App Store submission still requires Apple Developer signing, a native MapKit adapter, physical-device testing, privacy/support URLs, screenshots and App Review. This codebase preserves that route but cannot guarantee Apple's approval.
 
-No claim is made that the full Expo export has already passed.
+## Recommended acceptance checks
 
-## Required before public deployment
+Test on at least one iPhone-sized browser and one desktop browser:
 
-1. Run `npm run data:refresh`.
-2. Confirm the refreshed `src/data/gmb.json` has `schemaVersion: 2` and route-stop entries containing `sourceRouteId`, `routeSeq` and `stopSeq`.
-3. Run all verification/build commands.
-4. Test real examples across KMB, CTB, GMB and MTR.
-5. Deploy to a preview URL for owner acceptance.
-
-## Recommended acceptance routes
-
-Use multiple origin/destination pairs rather than one happy path:
-
-- PolyU / Hung Hom area to Mong Kok
-- Central to Causeway Bay
-- Sha Tin to Admiralty
-- A route where GMB is a candidate
-- A route requiring one transfer
-- A rain-mode and strong-UV-mode comparison
-
-Record expected route plausibility, ETA status, duplicate options, language copy and map display.
+- Open the journey tab and confirm the map does not load until expanded
+- Focus both inputs and confirm the page does not zoom or overflow horizontally
+- Confirm the route-search button is visible without scrolling
+- Search an address before route data finishes loading
+- Open results and confirm route cards appear before the optional map
+- Tap a route and confirm its steps expand
+- Start a route and confirm the live-navigation modal opens immediately
+- Deny location once and confirm the error appears in the modal
+- Open Nearby and confirm stop cards appear without downloading the full route-stop network
+- Check KMB, Citybus, GMB and MTR candidate journeys on normal and weak networks

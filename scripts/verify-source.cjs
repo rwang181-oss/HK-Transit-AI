@@ -23,11 +23,18 @@ function relative(file) {
 let failures = 0;
 let typescript;
 try {
-  const globalRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim();
-  typescript = require(path.join(globalRoot, 'typescript'));
-} catch (error) {
-  console.error('Unable to load the globally installed TypeScript parser:', error.message);
-  process.exit(1);
+  typescript = require('typescript');
+} catch (localError) {
+  try {
+    const globalRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim();
+    typescript = require(path.join(globalRoot, 'typescript'));
+  } catch (globalError) {
+    console.error(
+      'Unable to load the TypeScript parser from local or global dependencies:',
+      globalError.message
+    );
+    process.exit(1);
+  }
 }
 
 const files = walk(root);

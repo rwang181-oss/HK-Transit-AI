@@ -23,7 +23,7 @@ import { TransitMap } from '@/src/components/TransitMap';
 import { JourneyModeChips } from '@/src/components/JourneyModeChips';
 import { smartModeForWeather } from '@/src/journey/comfort/comfortEngine';
 import { JourneyOptionCard } from '@/src/components/JourneyOptionCard';
-import { LiveJourneyPanel } from '@/src/components/LiveJourneyPanel';
+import { NavigationModal } from '@/src/components/NavigationModal';
 import { COLORS } from '@/src/utils/constants';
 
 function safeDecode(value: string | undefined): string {
@@ -32,16 +32,6 @@ function safeDecode(value: string | undefined): string {
     return decodeURIComponent(value);
   } catch {
     return value;
-  }
-}
-
-function modeColor(mode: JourneyMode): string {
-  switch (mode) {
-    case 'fastest': return COLORS.fastest;
-    case 'shade': return COLORS.shade;
-    case 'rain': return COLORS.rain;
-    case 'indoor': return COLORS.indoor;
-    default: return COLORS.jade;
   }
 }
 
@@ -59,6 +49,8 @@ export default function JourneyResultScreen() {
   const { status, error, loadData, getHubById } = useJourneyStore();
   const { weather, refresh: refreshWeather } = useWeatherStore();
   const startNavigation = useNavigationStore((state) => state.start);
+  const navigationPhase = useNavigationStore((state) => state.phase);
+  const navigationError = useNavigationStore((state) => state.error);
 
   const fromPoint: TripPoint = useMemo(() => ({
     lat: Number(params.fromLat || 0),
@@ -78,13 +70,17 @@ export default function JourneyResultScreen() {
   const [planning, setPlanning] = useState(true);
   const [planError, setPlanError] = useState<string | null>(null);
   const [planAttempt, setPlanAttempt] = useState(0);
+  const [showRouteMap, setShowRouteMap] = useState(false);
+  const [navigationVisible, setNavigationVisible] = useState(false);
+  const [startingNavigation, setStartingNavigation] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       setPlanning(true);
       setPlanError(null);
-      await Promise.all([loadData(), refreshWeather()]);
+      void refreshWeather();
+      await loadData();
       if (cancelled) return;
       try {
         const currentWeather = useWeatherStore.getState().weather;
@@ -105,7 +101,7 @@ export default function JourneyResultScreen() {
     return () => {
       cancelled = true;
     };
-  }, [fromPoint.lat, fromPoint.lng, toPoint.lat, toPoint.lng, planAttempt]);
+  }, [fromPoint.lat, fromPoint.lng, toPoint.lat, toPoint.lng, planAttempt, loadData, refreshWeather]);
 
   const ranked = useMemo(() => sortJourneyOptions(options, mode), [options, mode]);
   const selected = ranked.find((option) => option.id === selectedId) || ranked[0] || null;
@@ -113,8 +109,15 @@ export default function JourneyResultScreen() {
   useEffect(() => {
     if (ranked.length && !ranked.some((option) => option.id === selectedId)) {
       setSelectedId(ranked[0].id);
+      setExpandedId(ranked[0].id);
     }
   }, [ranked, selectedId]);
+
+  useEffect(() => {
+    if (navigationVisible && !startingNavigation && navigationPhase === 'idle' && !navigationError) {
+      setNavigationVisible(false);
+    }
+  }, [navigationVisible, startingNavigation, navigationPhase, navigationError]);
 
   const hubName = (hubId: string): string => {
     const hub = getHubById(hubId);
@@ -134,9 +137,17 @@ export default function JourneyResultScreen() {
     router.push(`/journey/stop-eta?${query.toString()}` as never);
   };
 
-  const start = async (option: JourneyOption) => {
+  const selectOption = (option: JourneyOption) => {
     setSelectedId(option.id);
+    setExpandedId(option.id);
+  };
+
+  const start = async (option: JourneyOption) => {
+    selectOption(option);
+    setNavigationVisible(true);
+    setStartingNavigation(true);
     await startNavigation(option, toPoint);
+    setStartingNavigation(false);
   };
 
   const mapPoints = selected
@@ -155,11 +166,7 @@ export default function JourneyResultScreen() {
     ? selected.geometry[Math.floor(selected.geometry.length / 2)] || fromPoint
     : { lat: (fromPoint.lat + toPoint.lat) / 2, lng: (fromPoint.lng + toPoint.lng) / 2 };
 
-  const weatherSummary = [
-    weather.temperatureC == null ? null : `${Math.round(weather.temperatureC)}°C`,
-    weather.uvIndex == null ? null : `UV ${weather.uvIndex}`,
-    t(`weather.rain.${weather.rainIntensity}`),
-  ].filter(Boolean).join(' · ');
+  const navigationActive = navigationPhase !== 'idle' || Boolean(navigationError);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -169,23 +176,22 @@ export default function JourneyResultScreen() {
           <Text style={styles.backText}>‹</Text>
         </Pressable>
         <View style={styles.headerTextBlock}>
-          <Text style={styles.headerEyebrow}>{t('journey.routeOptions')}</Text>
+          <Text style={styles.headerTitle}>{t('journey.routeOptions')}</Text>
           <Text style={styles.routeSummary} numberOfLines={1}>
             {fromPoint.name} → {toPoint.name}
           </Text>
         </View>
-        <View style={styles.weatherBadge}>
-          <Text style={styles.weatherBadgeText}>{weatherSummary}</Text>
-        </View>
+        {navigationActive ? (
+          <Pressable style={styles.liveButton} onPress={() => setNavigationVisible(true)}>
+            <Text style={styles.liveButtonText}>{t('navigation.open')}</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       {planning || status === 'loading' ? (
         <View style={styles.center}>
-          <View style={styles.loadingOrb}>
-            <ActivityIndicator size="large" color={COLORS.hkRed} />
-          </View>
+          <ActivityIndicator size="large" color={COLORS.hkRed} />
           <Text style={styles.loadingTitle}>{t('journey.loading')}</Text>
-          <Text style={styles.loadingSubtitle}>{t('journey.loadingSubtitle')}</Text>
         </View>
       ) : error || planError ? (
         <View style={styles.center}>
@@ -197,92 +203,109 @@ export default function JourneyResultScreen() {
         </View>
       ) : (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-          <View style={styles.mapWrap}>
-            <TransitMap
-              center={center}
-              points={mapPoints}
-              paths={selected ? [{ id: selected.id, points: selected.geometry, color: modeColor(mode), dashed: true }] : []}
-              height={285}
-            />
-            <View style={styles.mapNotice}>
-              <Text style={styles.mapNoticeText}>{t('journey.approximateGeometry')}</Text>
+          <View style={styles.page}>
+            <View style={styles.countRow}>
+              <Text style={styles.countTitle}>{t('journey.optionsFound', { count: ranked.length })}</Text>
+              <Text style={styles.countMeta}>{t('journey.selectRouteHint')}</Text>
             </View>
-          </View>
 
-          <LiveJourneyPanel />
+            <JourneyModeChips value={mode} onChange={setMode} weather={weather} />
 
-          <JourneyModeChips value={mode} onChange={setMode} weather={weather} />
+            {ranked.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>{t('journey.noResult')}</Text>
+                <Text style={styles.emptyText}>{t('journey.noResultHelp')}</Text>
+              </View>
+            ) : (
+              ranked.map((option, index) => (
+                <JourneyOptionCard
+                  key={option.id}
+                  option={option}
+                  rank={index}
+                  mode={mode}
+                  selected={selected?.id === option.id}
+                  expanded={expandedId === option.id}
+                  hubName={hubName}
+                  onSelect={() => selectOption(option)}
+                  onToggle={() => {
+                    setSelectedId(option.id);
+                    setExpandedId(expandedId === option.id ? null : option.id);
+                  }}
+                  onStart={() => void start(option)}
+                  onOpenEta={() => openEta(option)}
+                />
+              ))
+            )}
 
-          <View style={styles.countRow}>
-            <Text style={styles.countTitle}>{t('journey.optionsFound', { count: ranked.length })}</Text>
-            <Text style={styles.countMeta}>{t('journey.sortedBy', { mode: t(`journey.modes.${mode}`) })}</Text>
-          </View>
+            {selected ? (
+              <Pressable style={styles.mapToggle} onPress={() => setShowRouteMap((value) => !value)}>
+                <Text style={styles.mapToggleText}>
+                  {showRouteMap ? t('journey.hideRouteMap') : t('journey.viewRouteMap')}
+                </Text>
+                <Text style={styles.mapToggleArrow}>{showRouteMap ? '⌃' : '⌄'}</Text>
+              </Pressable>
+            ) : null}
 
-          {ranked.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyIcon}>⌁</Text>
-              <Text style={styles.emptyTitle}>{t('journey.noResult')}</Text>
-              <Text style={styles.emptyText}>{t('journey.noResultHelp')}</Text>
-            </View>
-          ) : (
-            ranked.map((option, index) => (
-              <JourneyOptionCard
-                key={option.id}
-                option={option}
-                rank={index}
-                mode={mode}
-                selected={selected?.id === option.id}
-                expanded={expandedId === option.id}
-                hubName={hubName}
-                onSelect={() => setSelectedId(option.id)}
-                onToggle={() => setExpandedId(expandedId === option.id ? null : option.id)}
-                onStart={() => start(option)}
-                onOpenEta={() => openEta(option)}
-              />
-            ))
-          )}
-
-          <View style={styles.disclaimer}>
-            <Text style={styles.disclaimerTitle}>{t('journey.estimateTitle')}</Text>
-            <Text style={styles.disclaimerText}>{t('journey.estimateDisclosure')}</Text>
+            {showRouteMap && selected ? (
+              <View style={styles.mapWrap}>
+                <TransitMap
+                  center={center}
+                  points={mapPoints}
+                  paths={[{ id: selected.id, points: selected.geometry, color: COLORS.hkRed }]}
+                  height={270}
+                />
+                <Text style={styles.mapNote}>{t('journey.approximateGeometry')}</Text>
+              </View>
+            ) : null}
           </View>
         </ScrollView>
       )}
+
+      <NavigationModal
+        visible={navigationVisible}
+        starting={startingNavigation}
+        onClose={() => setNavigationVisible(false)}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.bgSystem },
-  header: { minHeight: 70, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: COLORS.bgSystem },
-  backButton: { width: 38, height: 38, borderRadius: 13, backgroundColor: COLORS.bgCard, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center' },
-  backText: { color: COLORS.textPrimary, fontSize: 30, lineHeight: 31, marginTop: -3 },
-  headerTextBlock: { flex: 1 },
-  headerEyebrow: { color: COLORS.hkRed, fontSize: 10, fontWeight: '700', letterSpacing: 0.7, textTransform: 'uppercase' },
-  routeSummary: { color: COLORS.textPrimary, fontSize: 15, fontWeight: '700', marginTop: 3 },
-  weatherBadge: { maxWidth: '36%', borderRadius: 12, backgroundColor: COLORS.bgCard, paddingHorizontal: 9, paddingVertical: 7, borderWidth: 1, borderColor: COLORS.border },
-  weatherBadgeText: { color: COLORS.textSecondary, fontSize: 9, textAlign: 'center' },
+  header: {
+    minHeight: 66,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.border,
+  },
+  backButton: { width: 38, height: 38, borderRadius: 12, backgroundColor: COLORS.bgCard, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center' },
+  backText: { color: COLORS.textPrimary, fontSize: 29, lineHeight: 30, marginTop: -3 },
+  headerTextBlock: { flex: 1, minWidth: 0 },
+  headerTitle: { color: COLORS.textPrimary, fontSize: 16, fontWeight: '800' },
+  routeSummary: { color: COLORS.textSecondary, fontSize: 11, marginTop: 3 },
+  liveButton: { minHeight: 36, maxWidth: 110, borderRadius: 11, backgroundColor: COLORS.ink, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center' },
+  liveButtonText: { color: '#FFFFFF', fontSize: 10, fontWeight: '700', textAlign: 'center' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30 },
-  loadingOrb: { width: 76, height: 76, borderRadius: 38, backgroundColor: COLORS.bgCard, alignItems: 'center', justifyContent: 'center', shadowColor: '#102A43', shadowOpacity: 0.08, shadowRadius: 20 },
-  loadingTitle: { color: COLORS.textPrimary, fontSize: 18, fontWeight: '700', marginTop: 20 },
-  loadingSubtitle: { color: COLORS.textSecondary, fontSize: 13, lineHeight: 19, textAlign: 'center', marginTop: 7, maxWidth: 360 },
-  errorTitle: { color: COLORS.hkRed, fontSize: 18, fontWeight: '700' },
+  loadingTitle: { color: COLORS.textPrimary, fontSize: 16, fontWeight: '700', marginTop: 16 },
+  errorTitle: { color: COLORS.hkRed, fontSize: 17, fontWeight: '700' },
   errorDetail: { color: COLORS.textSecondary, fontSize: 11, marginTop: 8, textAlign: 'center' },
-  retryButton: { marginTop: 18, borderRadius: 13, backgroundColor: COLORS.hkRed, paddingHorizontal: 20, paddingVertical: 11 },
+  retryButton: { marginTop: 17, borderRadius: 12, backgroundColor: COLORS.hkRed, paddingHorizontal: 19, paddingVertical: 10 },
   retryButtonText: { color: '#FFFFFF', fontWeight: '700' },
   scroll: { flex: 1 },
-  content: { paddingBottom: 34 },
-  mapWrap: { margin: 16, position: 'relative' },
-  mapNotice: { position: 'absolute', left: 10, bottom: 10, backgroundColor: 'rgba(16,42,67,0.88)', paddingHorizontal: 9, paddingVertical: 6, borderRadius: 10 },
-  mapNoticeText: { color: '#FFFFFF', fontSize: 9, fontWeight: '600' },
-  countRow: { paddingHorizontal: 18, marginTop: 17, marginBottom: 10, flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 },
-  countTitle: { color: COLORS.textPrimary, fontSize: 16, fontWeight: '700' },
-  countMeta: { color: COLORS.textTertiary, fontSize: 10, textAlign: 'right' },
-  emptyCard: { marginHorizontal: 16, borderRadius: 22, backgroundColor: COLORS.bgCard, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', padding: 30 },
-  emptyIcon: { fontSize: 28, color: COLORS.textTertiary },
-  emptyTitle: { color: COLORS.textPrimary, fontSize: 17, fontWeight: '700', marginTop: 10 },
-  emptyText: { color: COLORS.textSecondary, fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: 6 },
-  disclaimer: { marginHorizontal: 18, marginTop: 6, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 16 },
-  disclaimerTitle: { color: COLORS.textPrimary, fontSize: 12, fontWeight: '700' },
-  disclaimerText: { color: COLORS.textTertiary, fontSize: 10, lineHeight: 16, marginTop: 5 },
+  content: { paddingBottom: 28 },
+  page: { width: '100%', maxWidth: 680, alignSelf: 'center' },
+  countRow: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 3, flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 },
+  countTitle: { color: COLORS.textPrimary, fontSize: 15, fontWeight: '800' },
+  countMeta: { color: COLORS.textTertiary, fontSize: 10, textAlign: 'right', flex: 1 },
+  emptyCard: { marginHorizontal: 12, marginTop: 8, borderRadius: 17, backgroundColor: COLORS.bgCard, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', padding: 26 },
+  emptyTitle: { color: COLORS.textPrimary, fontSize: 16, fontWeight: '700' },
+  emptyText: { color: COLORS.textSecondary, fontSize: 11, lineHeight: 17, textAlign: 'center', marginTop: 6 },
+  mapToggle: { marginHorizontal: 12, marginTop: 2, minHeight: 46, borderRadius: 13, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.bgCard, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  mapToggleText: { color: COLORS.textPrimary, fontSize: 12, fontWeight: '700' },
+  mapToggleArrow: { color: COLORS.textSecondary, fontSize: 16 },
+  mapWrap: { marginHorizontal: 12, marginTop: 8 },
+  mapNote: { color: COLORS.textTertiary, fontSize: 9, textAlign: 'center', marginTop: 6 },
 });

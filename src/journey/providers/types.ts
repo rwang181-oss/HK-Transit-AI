@@ -46,10 +46,16 @@ export interface ETA {
   remark_tc?: string;
 }
 
+export interface ProviderTopology {
+  stops: Stop[];
+  links: RouteStopLink[];
+}
+
 export interface TransitProvider {
   id: ProviderId;
   fetchRoutes(): Promise<Route[]>;
   fetchStops(): Promise<Stop[]>;
   fetchRouteStops(route: string, bound: 'O' | 'I'): Promise<RouteStopLink[]>;
   fetchETA(stopId: string, route: string): Promise<ETA[]>;
+  fetchTopology?(): Promise<ProviderTopology>;
 }

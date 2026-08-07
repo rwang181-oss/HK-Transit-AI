@@ -12,7 +12,7 @@ function formatClock(timestamp: number, locale: string): string {
   }).format(new Date(timestamp));
 }
 
-export function LiveJourneyPanel() {
+export function LiveJourneyPanel({ embedded = false }: { embedded?: boolean }) {
   const { t, i18n } = useTranslation();
   const {
     phase,
@@ -30,7 +30,7 @@ export function LiveJourneyPanel() {
 
   if (phase === 'idle' && error) {
     return (
-      <View style={[styles.panel, styles.errorPanel]}>
+      <View style={[styles.panel, embedded && styles.panelEmbedded, styles.errorPanel]}>
         <Text style={styles.error}>{t(`navigation.errors.${error}`)}</Text>
         <Pressable style={styles.dismissButton} onPress={stop}>
           <Text style={styles.dismissText}>{t('common.cancel')}</Text>
@@ -41,7 +41,7 @@ export function LiveJourneyPanel() {
   if (phase === 'idle' || !option || !destination) return null;
 
   return (
-    <View style={styles.panel}>
+    <View style={[styles.panel, embedded && styles.panelEmbedded]}>
       <View style={styles.headerRow}>
         <View style={styles.liveBadge}>
           <View style={styles.liveDot} />
@@ -114,6 +114,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.ink,
     padding: 18,
   },
+  panelEmbedded: { marginHorizontal: 0, marginBottom: 0, borderRadius: 18 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   liveBadge: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#32D583' },

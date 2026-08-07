@@ -53,6 +53,13 @@ export const gmbProvider: TransitProvider = {
     }));
   },
 
+  async fetchTopology() {
+    return {
+      stops: data.stops.map((stop) => ({ ...stop, provider: 'GMB' as const })),
+      links: data.routeStops.map((link) => ({ ...link, provider: 'GMB' as const })),
+    };
+  },
+
   async fetchETA(stopId: string, route: string): Promise<ETA[]> {
     const bound = route.endsWith('-I') ? 'I' : 'O';
     const meta = routeStopMetaIndex.get(`${route}:${bound}:${stopId}`);

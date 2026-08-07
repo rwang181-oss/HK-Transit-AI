@@ -14,6 +14,9 @@ const required = [
   'src/components/JourneyModeChips.tsx',
   'src/components/JourneyOptionCard.tsx',
   'src/components/LiveJourneyPanel.tsx',
+  'src/components/NavigationModal.tsx',
+  'app/+html.tsx',
+  'scripts/verify-mobile-ux.cjs',
   'docs/ARCHITECTURE.md',
   'docs/PROJECT_STATUS.md',
   'docs/DEPLOYMENT.md',
@@ -24,7 +27,7 @@ const required = [
   'docs/AGENT_PROMPT.md',
 ];
 
-const generatedDirs = ['node_modules', '.core-test-dist', 'dist'];
+const generatedDirs = ['.core-test-dist', 'dist'];
 for (const item of generatedDirs) {
   const target = path.join(root, item);
   if (fs.existsSync(target)) {

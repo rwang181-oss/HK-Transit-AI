@@ -14,6 +14,7 @@ declare module 'react-native' {
   export type View = any;
   export const ActivityIndicator: any;
   export const Linking: any;
+  export const Modal: any;
   export const Platform: any;
   export const Pressable: any;
   export const RefreshControl: any;

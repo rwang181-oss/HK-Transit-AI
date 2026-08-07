@@ -1,6 +1,5 @@
 import { API_BASE_URL } from '@/src/utils/constants';
-
-// ---- Types ----
+import { createRequestCache } from '@/src/utils/requestCache';
 
 export interface Route {
   route: string;
@@ -42,33 +41,49 @@ export interface ETA {
   data_timestamp: string;
 }
 
-// ---- Internal fetch helper ----
+const requestCache = createRequestCache();
+const TOPOLOGY_TTL_MS = 5 * 60_000;
+const ROUTE_TTL_MS = 2 * 60_000;
+const ETA_TTL_MS = 10_000;
 
-async function apiGet<T>(path: string): Promise<T> {
+async function apiGet<T>(path: string, ttlMs: number): Promise<T> {
   const url = `${API_BASE_URL}${path}`;
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(
-      `API error: ${response.status} ${response.statusText} for ${url}`
-    );
-  }
-  return response.json() as Promise<T>;
+  return requestCache.get(url, ttlMs, async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8_000);
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        cache: 'default',
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status} ${response.statusText} for ${url}`);
+      }
+      return (await response.json()) as T;
+    } catch (error) {
+      if ((error as Error)?.name === 'AbortError') {
+        throw new Error(`Request timed out: ${url}`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  });
 }
 
-// ---- Public API functions ----
-
 export async function fetchAllRoutes(): Promise<Route[]> {
-  const data = await apiGet<{ data: Route[] }>('/route/');
+  const data = await apiGet<{ data: Route[] }>('/route/', ROUTE_TTL_MS);
   return data.data;
 }
 
 export async function fetchAllStops(): Promise<Stop[]> {
-  const data = await apiGet<{ data: Stop[] }>('/stop/');
+  const data = await apiGet<{ data: Stop[] }>('/stop/', TOPOLOGY_TTL_MS);
   return data.data;
 }
 
 export async function fetchAllRouteStops(): Promise<RouteStop[]> {
-  const data = await apiGet<{ data: RouteStop[] }>('/route-stop/');
+  const data = await apiGet<{ data: RouteStop[] }>('/route-stop/', TOPOLOGY_TTL_MS);
   return data.data;
 }
 
@@ -77,10 +92,19 @@ export async function fetchRouteStops(
   bound: 'O' | 'I',
   serviceType: number = 1
 ): Promise<RouteStop[]> {
-  // API expects full direction words in the URL, not O/I abbreviations
   const dir = bound === 'O' ? 'outbound' : 'inbound';
   const data = await apiGet<{ data: RouteStop[] }>(
-    `/route-stop/${route}/${dir}/${serviceType}`
+    `/route-stop/${route}/${dir}/${serviceType}`,
+    ROUTE_TTL_MS
+  );
+  return data.data;
+}
+
+
+export async function fetchStopETA(stopId: string): Promise<ETA[]> {
+  const data = await apiGet<{ data: ETA[] }>(
+    `/stop-eta/${stopId}`,
+    ETA_TTL_MS
   );
   return data.data;
 }
@@ -91,7 +115,8 @@ export async function fetchETA(
   serviceType: number = 1
 ): Promise<ETA[]> {
   const data = await apiGet<{ data: ETA[] }>(
-    `/eta/${stopId}/${route}/${serviceType}`
+    `/eta/${stopId}/${route}/${serviceType}`,
+    ETA_TTL_MS
   );
   return data.data;
 }

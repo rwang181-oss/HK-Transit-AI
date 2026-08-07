@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.0.1 mobile performance and journey UX — 2026-08-06
+
+### Changed
+- Rebuilt the journey home screen as a mobile-first layout with 16 px inputs and a primary route-search button that remains visible below the scroll area.
+- Made both the location picker map and route map opt-in so Leaflet and map tiles are not loaded during the initial screen render.
+- Switched web maps to high-DPI CARTO raster tiles, added an explicit mobile viewport, iOS safe-area handling, loading feedback and resize recovery.
+- Simplified journey results so route cards and steps appear before optional maps and secondary explanation.
+- Route selection now expands the selected itinerary, while starting a journey opens a dedicated live-navigation modal with permission/error feedback and a reopen control.
+- Added request TTL caching, in-flight request deduplication, route-data stale-while-revalidate behaviour and bounded realtime ETA concurrency.
+- Deferred the full multimodal journey graph until the user begins searching or opens the result screen; route planning now awaits an existing graph build instead of racing it.
+- Replaced the nearby page's full-network route-stop download with bounded per-stop Stop ETA requests for only the ten nearest KMB stops.
+
+### iOS continuity
+- The shared Expo Router, TypeScript stores, journey engine, location permission flow, EAS profiles and iOS bundle identifier remain intact.
+- Native map rendering remains isolated behind `TransitMap`, preserving the planned `TransitMap.web.tsx` / `TransitMap.ios.tsx` adapter path for a future App Store build.
+
 ## 2.0.0 handoff — 2026-08-06
 
 ### Added

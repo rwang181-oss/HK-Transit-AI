@@ -1,7 +1,15 @@
-import { useEffect, useRef } from 'react';
-import { Platform, View, Text, StyleSheet, Pressable, Linking } from 'react-native';
-import { COLORS } from '@/src/utils/constants';
+import { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Linking,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useTranslation } from 'react-i18next';
+import { COLORS } from '@/src/utils/constants';
 
 export interface MapPoint {
   lat: number;
@@ -47,39 +55,72 @@ export function TransitMap({
   const layerRef = useRef<any>(null);
   const leafletRef = useRef<any>(null);
   const pickHandlerRef = useRef(onPickPoint);
+  const [loading, setLoading] = useState(Platform.OS === 'web');
+  const [mapError, setMapError] = useState(false);
   pickHandlerRef.current = onPickPoint;
 
   useEffect(() => {
     if (Platform.OS !== 'web') return undefined;
     let disposed = false;
     let map: any;
+    let observer: ResizeObserver | null = null;
 
-    (async () => {
-      const module = await import('leaflet');
-      await import('leaflet/dist/leaflet.css');
-      if (disposed || !containerRef.current) return;
-      const L = module.default || module;
-      leafletRef.current = L;
-      map = L.map(containerRef.current as any, {
-        center: [center.lat, center.lng],
-        zoom: 15,
-        attributionControl: true,
-        zoomControl: true,
-      });
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '© OpenStreetMap contributors',
-      }).addTo(map);
-      map.on('click', (event: any) => {
-        pickHandlerRef.current?.({ lat: event.latlng.lat, lng: event.latlng.lng });
-      });
-      mapRef.current = map;
-      renderLayers(map, L, points, paths);
-      setTimeout(() => map.invalidateSize(), 0);
+    void (async () => {
+      try {
+        const module = await import('leaflet');
+        if (disposed || !containerRef.current) return;
+        const L = module.default || module;
+        leafletRef.current = L;
+        map = L.map(containerRef.current as any, {
+          center: [center.lat, center.lng],
+          zoom: 15,
+          attributionControl: true,
+          zoomControl: true,
+          preferCanvas: true,
+          fadeAnimation: false,
+          zoomAnimation: false,
+          markerZoomAnimation: false,
+        });
+        L.tileLayer(
+          'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+          {
+            subdomains: 'abcd',
+            maxZoom: 20,
+            minZoom: 10,
+            updateWhenIdle: true,
+            updateWhenZooming: false,
+            keepBuffer: 1,
+            crossOrigin: true,
+            attribution: '© OpenStreetMap contributors © CARTO',
+          }
+        ).addTo(map);
+        map.on('click', (event: any) => {
+          pickHandlerRef.current?.({ lat: event.latlng.lat, lng: event.latlng.lng });
+        });
+        map.whenReady(() => {
+          if (!disposed) setLoading(false);
+        });
+        mapRef.current = map;
+        renderLayers(map, L, points, paths);
+        requestAnimationFrame(() => map.invalidateSize(false));
+
+        if (typeof ResizeObserver !== 'undefined') {
+          observer = new ResizeObserver(() => {
+            requestAnimationFrame(() => map?.invalidateSize(false));
+          });
+          observer.observe(containerRef.current as any);
+        }
+      } catch {
+        if (!disposed) {
+          setLoading(false);
+          setMapError(true);
+        }
+      }
     })();
 
     return () => {
       disposed = true;
+      observer?.disconnect();
       mapRef.current = null;
       leafletRef.current = null;
       map?.remove();
@@ -96,7 +137,7 @@ export function TransitMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    map.panTo([center.lat, center.lng], { animate: true, duration: 0.25 });
+    map.setView([center.lat, center.lng], map.getZoom(), { animate: false });
   }, [center.lat, center.lng]);
 
   function renderLayers(map: any, L: any, mapPoints: MapPoint[], mapPaths: MapPath[]) {
@@ -112,7 +153,7 @@ export function TransitMap({
       L.polyline(latLngs, {
         color: path.color || COLORS.hkRed,
         weight: 5,
-        opacity: 0.82,
+        opacity: 0.86,
         dashArray: path.dashed ? '8 8' : undefined,
         lineCap: 'round',
         lineJoin: 'round',
@@ -127,7 +168,7 @@ export function TransitMap({
         iconSize: [18, 18],
         iconAnchor: [9, 9],
       });
-      const marker = L.marker([point.lat, point.lng], { icon });
+      const marker = L.marker([point.lat, point.lng], { icon, keyboard: false });
       if (point.label) marker.bindTooltip(point.label, { direction: 'top' });
       marker.addTo(layer);
       bounds.push([point.lat, point.lng]);
@@ -135,7 +176,9 @@ export function TransitMap({
 
     layer.addTo(map);
     layerRef.current = layer;
-    if (bounds.length > 1) map.fitBounds(bounds, { padding: [28, 28], maxZoom: 16 });
+    if (bounds.length > 1) {
+      map.fitBounds(bounds, { padding: [24, 24], maxZoom: 16, animate: false });
+    }
   }
 
   if (Platform.OS !== 'web') {
@@ -160,16 +203,52 @@ export function TransitMap({
     );
   }
 
-  return <View ref={containerRef} style={[styles.map, { height }]} />;
+  return (
+    <View style={[styles.map, { height }]}>
+      <View ref={containerRef} style={styles.mapCanvas} />
+      {loading ? (
+        <View pointerEvents="none" style={styles.mapOverlay}>
+          <ActivityIndicator size="small" color={COLORS.hkRed} />
+          <Text style={styles.loadingText}>{t('journey.loadingMap')}</Text>
+        </View>
+      ) : null}
+      {mapError ? (
+        <View pointerEvents="none" style={styles.mapOverlay}>
+          <Text style={styles.errorText}>{t('journey.mapUnavailable')}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
   map: {
     width: '100%',
-    borderRadius: 18,
+    position: 'relative',
+    borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: '#E9EDF2',
   },
+  mapCanvas: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
+  mapOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(244,246,248,0.88)',
+  },
+  loadingText: { color: COLORS.textSecondary, fontSize: 12, fontWeight: '600' },
+  errorText: { color: COLORS.textSecondary, fontSize: 12, fontWeight: '600' },
   nativeCard: {
     width: '100%',
     borderRadius: 18,

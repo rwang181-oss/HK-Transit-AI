@@ -23,12 +23,20 @@ interface RouteData {
 }
 
 const CACHE_KEY = 'hk-transit-route-data';
+const STOP_ROUTES_CACHE_KEY = 'hk-transit-stop-routes-v2';
+let routeDataLoad: Promise<void> | null = null;
+let allRouteStopsLoad: Promise<void> | null = null;
+
+function indexStops(stops: Stop[]): Record<string, Stop> {
+  return Object.fromEntries(stops.map((stop) => [stop.stop, stop]));
+}
 
 interface RouteState {
   routes: Route[];
   stops: Stop[];
+  stopIndex: Record<string, Stop>;
   routeStopsCache: Record<string, RouteStop[]>;
-  stopToRoutes: Record<string, RouteInfo[]>; // reverse index: stopId → routes
+  stopToRoutes: Record<string, RouteInfo[]>;
   loading: boolean;
   error: string | null;
   loaded: boolean;
@@ -48,87 +56,96 @@ interface RouteState {
 export const useRouteStore = create<RouteState>((set, get) => ({
   routes: [],
   stops: [],
+  stopIndex: {},
   routeStopsCache: {},
   stopToRoutes: {},
   loading: false,
   error: null,
   loaded: false,
 
-  // Fast path: routes + stops only (used by search & ETA pages).
-  // The heavy all-route-stops payload is loaded separately in loadAllRouteStops.
   loadRouteData: async () => {
     if (get().loaded) return;
+    if (routeDataLoad) return routeDataLoad;
 
-    // Instant display from cache if available
-    const cached = await storage.getItem<RouteData>(CACHE_KEY);
-    if (cached) {
-      set({
-        routes: cached.routes,
-        stops: cached.stops,
-        loaded: true,
-        loading: false,
-      });
-    }
-
-    // Refresh from network in the background
-    set({ loading: true, error: null });
-    try {
-      const [routes, stops] = await Promise.all([
-        fetchAllRoutes(),
-        fetchAllStops(),
-      ]);
-      set({ routes, stops, loaded: true, loading: false });
-      await storage.setItem(CACHE_KEY, { routes, stops });
-    } catch (err) {
-      // Keep cached data if refresh failed
-      if (!get().loaded) {
-        set({ error: String(err), loading: false });
+    routeDataLoad = (async () => {
+      const cached = await storage.getItem<RouteData>(CACHE_KEY);
+      if (cached) {
+        set({
+          routes: cached.routes,
+          stops: cached.stops,
+          stopIndex: indexStops(cached.stops),
+          loaded: true,
+          loading: false,
+          error: null,
+        });
       } else {
-        set({ loading: false });
+        set({ loading: true, error: null });
       }
-    }
+
+      try {
+        const [routes, stops] = await Promise.all([fetchAllRoutes(), fetchAllStops()]);
+        set({
+          routes,
+          stops,
+          stopIndex: indexStops(stops),
+          loaded: true,
+          loading: false,
+          error: null,
+        });
+        void storage.setItem(CACHE_KEY, { routes, stops });
+      } catch (error) {
+        if (!get().loaded) set({ error: String(error), loading: false });
+      }
+    })().finally(() => {
+      routeDataLoad = null;
+    });
+    return routeDataLoad;
   },
 
-  // Heavy payload: full route-stop list → builds stop→routes reverse index.
-  // Only needed by the Nearby screen.
   loadAllRouteStops: async () => {
     if (Object.keys(get().stopToRoutes).length > 0) return;
-    set({ loading: true, error: null });
-    try {
-      const [allRouteStops, routes] = await Promise.all([
-        fetchAllRouteStops(),
-        Promise.resolve(get().routes.length ? get().routes : fetchAllRoutes()),
-      ]);
+    if (allRouteStopsLoad) return allRouteStopsLoad;
 
-      const stopToRoutes: Record<string, RouteInfo[]> = {};
-      const routeMap = new Map<string, Route>();
-      for (const r of routes) {
-        routeMap.set(r.route, r);
+    allRouteStopsLoad = (async () => {
+      const cached = await storage.getItem<Record<string, RouteInfo[]>>(STOP_ROUTES_CACHE_KEY);
+      if (cached && Object.keys(cached).length > 0) {
+        set({ stopToRoutes: cached, loading: false, error: null });
+      } else {
+        set({ loading: true, error: null });
       }
 
-      for (const rs of allRouteStops) {
-        const key = rs.stop;
-        if (!stopToRoutes[key]) stopToRoutes[key] = [];
-        const route = routeMap.get(rs.route);
-        const exists = stopToRoutes[key].some(
-          (r) => r.route === rs.route && r.bound === rs.bound
-        );
-        if (!exists) {
-          stopToRoutes[key].push({
-            route: rs.route,
-            bound: rs.bound,
-            serviceType: parseInt(rs.service_type, 10) || 1,
-            seq: rs.seq,
+      try {
+        const routes = get().routes.length ? get().routes : await fetchAllRoutes();
+        const allRouteStops = await fetchAllRouteStops();
+        const routeMap = new Map<string, Route>();
+        for (const route of routes) routeMap.set(`${route.route}:${route.bound}`, route);
+
+        const stopToRoutes: Record<string, RouteInfo[]> = {};
+        for (const item of allRouteStops) {
+          const list = stopToRoutes[item.stop] || (stopToRoutes[item.stop] = []);
+          const route = routeMap.get(`${item.route}:${item.bound}`);
+          if (list.some((entry) => entry.route === item.route && entry.bound === item.bound)) continue;
+          list.push({
+            route: item.route,
+            bound: item.bound,
+            serviceType: parseInt(item.service_type, 10) || 1,
+            seq: item.seq,
             dest_en: route?.dest_en || '',
             dest_tc: route?.dest_tc || '',
           });
         }
-      }
 
-      set({ stopToRoutes, loading: false });
-    } catch (err) {
-      set({ error: String(err), loading: false });
-    }
+        set({ stopToRoutes, loading: false, error: null });
+        void storage.setItem(STOP_ROUTES_CACHE_KEY, stopToRoutes);
+      } catch (error) {
+        if (Object.keys(get().stopToRoutes).length === 0) {
+          set({ error: String(error), loading: false });
+        }
+      }
+    })().finally(() => {
+      allRouteStopsLoad = null;
+    });
+    return allRouteStopsLoad;
   },
 
   getStopsForRoute: async (route, bound, serviceType = 1) => {
@@ -142,14 +159,8 @@ export const useRouteStore = create<RouteState>((set, get) => ({
     return routeStops;
   },
 
-  getStopById: (stopId) => {
-    return get().stops.find((s) => s.stop === stopId);
-  },
-
-  getRoutesForStop: (stopId) => {
-    return get().stopToRoutes[stopId] || [];
-  },
-
+  getStopById: (stopId) => get().stopIndex[stopId],
+  getRoutesForStop: (stopId) => get().stopToRoutes[stopId] || [],
   searchQuery: '',
-  setSearchQuery: (q) => set({ searchQuery: q }),
+  setSearchQuery: (query) => set({ searchQuery: query }),
 }));

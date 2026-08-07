@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, Stack } from 'expo-router';
 import { useTranslation } from 'react-i18next';
-import { ALL_PROVIDERS } from '@/src/journey/providers';
+import { getProvider } from '@/src/journey/providers';
+import type { ProviderId } from '@/src/journey/providers/types';
 import type { ETA } from '@/src/journey/providers/types';
 import { COLORS, ETA_REFRESH_INTERVAL } from '@/src/utils/constants';
 import { formatPublicRouteCode } from '@/src/journey/providers/routeDisplay';
@@ -33,14 +34,10 @@ export default function StopEtaScreen() {
 
   useEffect(() => {
     let cancelled = false;
-    const prov = ALL_PROVIDERS.find((p) => p.id === provider);
-    if (!prov) {
-      setError('Unknown provider');
-      return;
-    }
 
     const load = async () => {
       try {
+        const prov = await getProvider(provider as ProviderId);
         const data = await prov.fetchETA(stopId, route);
         if (!cancelled) {
           setEtas(data);
@@ -51,7 +48,7 @@ export default function StopEtaScreen() {
       }
     };
 
-    load();
+    void load();
     const timer = setInterval(load, ETA_REFRESH_INTERVAL);
     return () => {
       cancelled = true;

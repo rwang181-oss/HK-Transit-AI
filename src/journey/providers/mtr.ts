@@ -107,6 +107,17 @@ export const mtrProvider: TransitProvider = {
     }));
   },
 
+  async fetchTopology() {
+    const stops = await this.fetchStops();
+    const links: RouteStopLink[] = [];
+    for (const line of lines) {
+      for (const bound of ['O', 'I'] as const) {
+        links.push(...(await this.fetchRouteStops(line, bound)));
+      }
+    }
+    return { stops, links };
+  },
+
   async fetchETA(stopId: string, route: string): Promise<ETA[]> {
     const json = await scheduleJson(route, stopId);
     const block = json?.data?.[`${route}-${stopId}`];

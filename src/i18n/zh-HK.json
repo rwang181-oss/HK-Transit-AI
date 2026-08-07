@@ -53,16 +53,16 @@
     "mapPoint": "地圖選點",
     "swap": "交換",
     "plan": "規劃路線",
-    "planComfortRoute": "尋找舒適路線",
+    "planComfortRoute": "搜尋路線",
     "fastest": "最快",
     "direct": "直達",
     "transfer": "換乘 {{count}} 次",
     "noResult": "暫時找不到合適路線",
     "noResultHelp": "可嘗試選擇附近地點、重新在地圖選點，或更新交通資料。",
     "estimates": "時間為估算值",
-    "loading": "正在建立行程選擇",
+    "loading": "正在搜尋路線",
     "loadingSubtitle": "綜合步行、實時到站、換乘及天氣舒適度。",
-    "loadingData": "正在準備香港交通資料……",
+    "loadingData": "正在準備路線資料……",
     "dataError": "無法準備行程資料",
     "cachedDataNotice": "部分網絡資料暫時不可用，現正使用已快取的交通資料。",
     "searchOrTapMap": "可搜尋地點，或直接點選地圖設定位置。",
@@ -114,7 +114,22 @@
     "nativeMapTitle": "已預留原生地圖介面",
     "nativeMapBody": "共用行程引擎已可使用；iOS 交接文件說明如何以 Apple MapKit 取代此備用畫面。",
     "openAppleMaps": "以 Apple 地圖開啟",
-    "nextServiceEstimate": "預計未能趕及眼前班次；行程時間已改用下一班車估算。"
+    "nextServiceEstimate": "預計未能趕及眼前班次；行程時間已改用下一班車估算。",
+    "loadingMap": "正在載入地圖……",
+    "mapUnavailable": "地圖暫時無法載入",
+    "showMapPicker": "在地圖選點",
+    "hideMapPicker": "收起地圖",
+    "mapPickerHint": "點選地圖即可設定目前輸入欄位。",
+    "routeDataReady": "交通資料已準備好",
+    "viewRouteMap": "查看路線地圖",
+    "hideRouteMap": "收起路線地圖",
+    "navigationSheetTitle": "實時行程",
+    "selectRouteHint": "點選行程即可查看步驟。",
+    "locationNeeded": "實時追蹤需要定位權限。",
+    "walk": "步行",
+    "wait": "候車",
+    "transfers": "換乘",
+    "nextServiceShort": "已改用下一班"
   },
   "navigation": {
     "start": "開始實時行程",
@@ -140,7 +155,9 @@
     "errors": {
       "locationPermissionDenied": "未取得定位權限。",
       "locationTrackingFailed": "無法開始實時定位追蹤。"
-    }
+    },
+    "starting": "正在開始實時追蹤……",
+    "open": "開啟實時行程"
   },
   "weather": {
     "rain": {
@@ -160,6 +177,7 @@
     "retry": "重試",
     "cancel": "取消",
     "save": "儲存",
-    "delete": "刪除"
+    "delete": "刪除",
+    "close": "關閉"
   }
 }

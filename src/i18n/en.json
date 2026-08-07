@@ -53,16 +53,16 @@
     "mapPoint": "Selected map point",
     "swap": "Swap",
     "plan": "Plan Route",
-    "planComfortRoute": "Find comfortable routes",
+    "planComfortRoute": "Search routes",
     "fastest": "Fastest",
     "direct": "Direct",
     "transfer": "{{count}} transfer",
     "noResult": "No practical route was found",
     "noResultHelp": "Try a nearby destination, choose another map point, or refresh the transport data.",
     "estimates": "Times are estimates",
-    "loading": "Building your journey options",
+    "loading": "Searching routes",
     "loadingSubtitle": "Combining walking, live departure information, transfers and weather comfort.",
-    "loadingData": "Preparing Hong Kong transport data...",
+    "loadingData": "Preparing route data...",
     "dataError": "The journey data could not be prepared",
     "cachedDataNotice": "Some network data is unavailable, so cached transport data is being used.",
     "searchOrTapMap": "Search for a place or tap the map to set this point.",
@@ -114,7 +114,22 @@
     "nativeMapTitle": "Native map handoff ready",
     "nativeMapBody": "The shared journey engine is active. The iOS handoff explains how to replace this fallback with Apple MapKit.",
     "openAppleMaps": "Open in Apple Maps",
-    "nextServiceEstimate": "The immediate service is likely unreachable; timing uses the next-service estimate."
+    "nextServiceEstimate": "The immediate service is likely unreachable; timing uses the next-service estimate.",
+    "loadingMap": "Loading map...",
+    "mapUnavailable": "Map is temporarily unavailable",
+    "showMapPicker": "Choose on map",
+    "hideMapPicker": "Hide map",
+    "mapPickerHint": "Tap the map to set the active field.",
+    "routeDataReady": "Route data ready",
+    "viewRouteMap": "View route map",
+    "hideRouteMap": "Hide route map",
+    "navigationSheetTitle": "Live journey",
+    "selectRouteHint": "Tap a route to see its steps.",
+    "locationNeeded": "Location access is needed for live tracking.",
+    "walk": "Walk",
+    "wait": "Wait",
+    "transfers": "Transfers",
+    "nextServiceShort": "Next service used"
   },
   "navigation": {
     "start": "Start live journey",
@@ -140,7 +155,9 @@
     "errors": {
       "locationPermissionDenied": "Location permission was not granted.",
       "locationTrackingFailed": "Live location tracking could not start."
-    }
+    },
+    "starting": "Starting live tracking...",
+    "open": "Open live journey"
   },
   "weather": {
     "rain": {
@@ -160,6 +177,7 @@
     "retry": "Retry",
     "cancel": "Cancel",
     "save": "Save",
-    "delete": "Delete"
+    "delete": "Delete",
+    "close": "Close"
   }
 }

@@ -7,17 +7,12 @@ const gmbParser = require('../../.core-test-dist/journey/providers/gmbParser.js'
 const departureSelector = require('../../.core-test-dist/journey/realtime/departureSelector.js');
 const navigationTiming = require('../../.core-test-dist/journey/realtime/navigationTiming.js');
 const routeDisplay = require('../../.core-test-dist/journey/providers/routeDisplay.js');
+const requestCache = require('../../.core-test-dist/utils/requestCache.js');
+const asyncPool = require('../../.core-test-dist/utils/asyncPool.js');
 
-let passed = 0;
+const registeredTests = [];
 function test(name, fn) {
-  try {
-    fn();
-    passed += 1;
-    console.log(`✓ ${name}`);
-  } catch (error) {
-    console.error(`✗ ${name}`);
-    throw error;
-  }
+  registeredTests.push({ name, fn });
 }
 
 const dry = { rainIntensity: 'none', temperatureC: 27, uvIndex: 3, isDaylight: true };
@@ -238,4 +233,63 @@ test('GMB parser keeps precise response when route metadata is supplied external
   assert.deepEqual(rows.map((row) => row.eta), ['z']);
 });
 
-console.log(`\n${passed} core tests passed.`);
+
+test('request cache reuses a fresh value within the ttl', async () => {
+  let calls = 0;
+  const cache = requestCache.createRequestCache({ now: () => 1_000 });
+  const loader = async () => {
+    calls += 1;
+    return `value-${calls}`;
+  };
+  assert.equal(await cache.get('key', 5_000, loader), 'value-1');
+  assert.equal(await cache.get('key', 5_000, loader), 'value-1');
+  assert.equal(calls, 1);
+});
+
+test('request cache deduplicates an in-flight request', async () => {
+  let release;
+  let calls = 0;
+  const cache = requestCache.createRequestCache();
+  const loader = () => {
+    calls += 1;
+    return new Promise((resolve) => { release = resolve; });
+  };
+  const first = cache.get('shared', 1_000, loader);
+  const second = cache.get('shared', 1_000, loader);
+  assert.equal(calls, 1);
+  release('done');
+  assert.equal(await first, 'done');
+  assert.equal(await second, 'done');
+});
+
+test('async pool never exceeds the requested concurrency', async () => {
+  let active = 0;
+  let peak = 0;
+  const values = await asyncPool.mapWithConcurrency([1, 2, 3, 4, 5], 2, async (value) => {
+    active += 1;
+    peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    active -= 1;
+    return value * 2;
+  });
+  assert.deepEqual(values, [2, 4, 6, 8, 10]);
+  assert.equal(peak, 2);
+});
+
+(async () => {
+  let passed = 0;
+  for (const { name, fn } of registeredTests) {
+    try {
+      await fn();
+      passed += 1;
+      console.log(`✓ ${name}`);
+    } catch (error) {
+      console.error(`✗ ${name}`);
+      throw error;
+    }
+  }
+  console.log(`\n${passed} core tests passed.`);
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

@@ -1,14 +1,16 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useLocationStore } from '@/src/stores/locationStore';
 import { useRouteStore } from '@/src/stores/routeStore';
+import { fetchStopETA, type Stop } from '@/src/services/kmbAPI';
 import {
   NearbyStopCard,
   type NearbyRouteAction,
 } from '@/src/components/NearbyStopCard';
 import { cleanStopName } from '@/src/journey/graph/stopMerger';
+import { mapWithConcurrency } from '@/src/utils/asyncPool';
 import { COLORS } from '@/src/utils/constants';
 
 function haversine(
@@ -25,8 +27,7 @@ function haversine(
     Math.cos((lat1 * Math.PI) / 180) *
       Math.cos((lat2 * Math.PI) / 180) *
       Math.sin(dLng / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 export default function NearbyScreen() {
@@ -40,52 +41,75 @@ export default function NearbyScreen() {
     requestPermission,
     getPosition,
   } = useLocationStore();
-  const { stops, loadRouteData, loadAllRouteStops, getRoutesForStop } =
-    useRouteStore();
+  const { stops, loadRouteData } = useRouteStore();
+  const [routesByStop, setRoutesByStop] = useState<Record<string, NearbyRouteAction[]>>({});
 
   useEffect(() => {
-    loadRouteData();
-    loadAllRouteStops(); // heavy: full route-stop list for reverse index
-  }, []);
+    void loadRouteData();
+  }, [loadRouteData]);
 
   useEffect(() => {
-    if (permissionGranted) {
-      getPosition();
-    }
-  }, [permissionGranted]);
+    if (permissionGranted) void getPosition();
+  }, [permissionGranted, getPosition]);
 
-  const nearbyStops = useMemo(() => {
+  const nearbyStops = useMemo<Array<Stop & { distance: number }>>(() => {
     if (!position) return [];
     return stops
       .map((stop) => ({
         ...stop,
-        distance: haversine(
-          position.lat,
-          position.lng,
-          stop.lat,
-          stop.long
-        ),
+        distance: haversine(position.lat, position.lng, stop.lat, stop.long),
       }))
       .sort((a, b) => a.distance - b.distance)
       .slice(0, 10);
   }, [stops, position]);
 
+  const nearbyStopKey = nearbyStops.map((stop) => stop.stop).join(',');
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!nearbyStops.length) return undefined;
+
+    void mapWithConcurrency(nearbyStops, 3, async (stop) => {
+      const etas = await fetchStopETA(stop.stop).catch(() => []);
+      const seen = new Set<string>();
+      const routes: NearbyRouteAction[] = [];
+      for (const eta of etas) {
+        const bound = eta.dir === 'I' ? 'I' : 'O';
+        const serviceType = Number(eta.service_type) || 1;
+        const key = `${eta.route}:${bound}:${serviceType}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        routes.push({
+          route: eta.route,
+          bound,
+          serviceType,
+          destEn: eta.dest_en || '',
+          destTc: eta.dest_tc || '',
+        });
+      }
+      if (!cancelled) {
+        setRoutesByStop((current) => ({ ...current, [stop.stop]: routes }));
+      }
+      return routes;
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [nearbyStopKey]);
+
   if (!permissionGranted) {
     return (
       <View style={styles.center}>
-        <Text style={styles.message}>
-          {t('nearby.permissionDenied')}
-        </Text>
+        <Text style={styles.message}>{t('nearby.permissionDenied')}</Text>
         <Pressable style={styles.button} onPress={requestPermission}>
-          <Text style={styles.buttonText}>
-            {t('nearby.grantPermission')}
-          </Text>
+          <Text style={styles.buttonText}>{t('nearby.grantPermission')}</Text>
         </Pressable>
       </View>
     );
   }
 
-  if (loading) {
+  if (loading || !position) {
     return (
       <View style={styles.center}>
         <Text style={styles.message}>{t('nearby.loading')}</Text>
@@ -94,33 +118,20 @@ export default function NearbyScreen() {
   }
 
   return (
-    <ScrollView style={styles.list}>
-      {nearbyStops.map((stop) => {
-        const routes = getRoutesForStop(stop.stop);
-        const actions: NearbyRouteAction[] = routes.map((r) => ({
-          route: r.route,
-          bound: r.bound,
-          serviceType: r.serviceType,
-          destEn: r.dest_en,
-          destTc: r.dest_tc,
-        }));
-
-        return (
-          <NearbyStopCard
-            key={stop.stop}
-            stopName={cleanStopName(
-              isEN ? stop.name_en : stop.name_tc
-            )}
-            distance={stop.distance}
-            routes={actions}
-            onRoutePress={(r) => {
-              router.push(
-                `/eta/${r.route}?bound=${r.bound}&stopId=${stop.stop}&serviceType=${r.serviceType}`
-              );
-            }}
-          />
-        );
-      })}
+    <ScrollView style={styles.list} contentContainerStyle={styles.content}>
+      {nearbyStops.map((stop) => (
+        <NearbyStopCard
+          key={stop.stop}
+          stopName={cleanStopName(isEN ? stop.name_en : stop.name_tc)}
+          distance={stop.distance}
+          routes={routesByStop[stop.stop] || []}
+          onRoutePress={(route) => {
+            router.push(
+              `/eta/${route.route}?bound=${route.bound}&stopId=${stop.stop}&serviceType=${route.serviceType}`
+            );
+          }}
+        />
+      ))}
     </ScrollView>
   );
 }
@@ -134,17 +145,18 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.bgSystem,
   },
   message: {
-    fontSize: 17,
+    fontSize: 16,
     color: COLORS.textSecondary,
     textAlign: 'center',
     marginBottom: 16,
   },
   button: {
     backgroundColor: COLORS.hkRed,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    paddingHorizontal: 22,
+    paddingVertical: 11,
     borderRadius: 12,
   },
-  buttonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '600' },
-  list: { flex: 1, backgroundColor: COLORS.bgSystem, paddingVertical: 8 },
+  buttonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+  list: { flex: 1, backgroundColor: COLORS.bgSystem },
+  content: { paddingVertical: 8, width: '100%', maxWidth: 680, alignSelf: 'center' },
 });
