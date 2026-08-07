@@ -1,5 +1,5 @@
 name: Apply mobile performance update
-# Fix Expo web bundler configuration and publish the verified update.
+# Preserve installed dependencies, configure Metro web, and publish the verified update.
 
 on:
   push:
@@ -81,6 +81,14 @@ jobs:
           if old not in source:
               raise SystemExit('Expected TypeScript loader block was not found')
           source_path.write_text(source.replace(old, new))
+
+          handoff_path = Path('scripts/verify-handoff.cjs')
+          handoff = handoff_path.read_text()
+          old_dirs = "const generatedDirs = ['node_modules', '.core-test-dist', 'dist'];"
+          new_dirs = "const generatedDirs = ['.core-test-dist', 'dist'];"
+          if old_dirs not in handoff:
+              raise SystemExit('Expected generatedDirs declaration was not found')
+          handoff_path.write_text(handoff.replace(old_dirs, new_dirs))
 
           app_path = Path('app.json')
           app = json.loads(app_path.read_text())
