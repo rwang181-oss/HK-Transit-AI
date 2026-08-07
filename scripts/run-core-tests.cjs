@@ -16,6 +16,8 @@ for (const testFile of [
   'tests/core/candidate-pools.test.cjs',
   'tests/core/walking-router.test.cjs',
   'tests/core/version-monitor.test.cjs',
+  'tests/core/journey-index.test.cjs',
+  'tests/core/progressive-planner.test.cjs',
 ]) {
   const tests = spawnSync(process.execPath, [testFile], { stdio: 'inherit' });
   if (tests.status !== 0) {
