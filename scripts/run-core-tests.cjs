@@ -18,6 +18,7 @@ for (const testFile of [
   'tests/core/version-monitor.test.cjs',
   'tests/core/journey-index.test.cjs',
   'tests/core/progressive-planner.test.cjs',
+  'tests/core/progressive-refine.test.cjs',
 ]) {
   const tests = spawnSync(process.execPath, [testFile], { stdio: 'inherit' });
   if (tests.status !== 0) {
