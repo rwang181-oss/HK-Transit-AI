@@ -1,5 +1,5 @@
 import type { ProviderId } from '@/src/journey/providers/types';
-import type { JourneyPolicy } from '@/src/journey/model/types';
+import type { JourneyMode, JourneyPolicy } from '@/src/journey/model/types';
 import { haversineMeters } from '../graph/travelTime';
 import { applyJourneyPolicy } from '../planner/routePolicies';
 import { mapWithConcurrency } from '../../utils/asyncPool';
@@ -110,13 +110,18 @@ function destinationServices(items: NearbyHub[]): Map<string, DestinationService
       output.set(service.routeKey, list);
     }
   }
-  for (const list of output.values()) list.sort((a, b) => a.straightMeters - b.straightMeters);
+  for (const list of output.values()) list.sort((a, b) => a.straightMeters - b.straightMeters || a.seq - b.seq);
   return output;
 }
 
 function destinationAfter(values: DestinationService[] | undefined, seq: number): DestinationService | null {
   if (!values) return null;
-  return values.find((value) => value.seq > seq) || null;
+  let best: DestinationService | null = null;
+  for (const value of values) {
+    if (value.seq <= seq) continue;
+    if (!best || value.straightMeters < best.straightMeters) best = value;
+  }
+  return best;
 }
 
 function routeMinutes(route: IndexedRoute, fromSeq: number, toSeq: number): number {
@@ -137,6 +142,38 @@ function arrivalWindow(totalMinutes: number, nowMs: number) {
   };
 }
 
+function estimatedComfort(walkingMinutes: number, waitMin: number) {
+  return {
+    outdoorExposureMinutes: Math.round(walkingMinutes + waitMin),
+    indoorTransitMinutes: 0,
+    walkingBurden: walkingMinutes <= 8 ? 'low' as const : walkingMinutes <= 18 ? 'medium' as const : 'high' as const,
+    weatherPenalty: 0,
+    score: 0,
+    confidence: 'estimated' as const,
+    reasons: ['estimatedComfort'],
+  };
+}
+
+function comfortScores(): Record<JourneyMode, number> {
+  return Object.fromEntries(
+    (['recommended', 'fastest', 'shade', 'rain', 'indoor'] as JourneyMode[]).map((mode) => [mode, 0])
+  ) as Record<JourneyMode, number>;
+}
+
+function rideLeg(route: IndexedRoute, fromHub: IndexedHub, toHub: IndexedHub, minutes: number): IndexedJourneyLeg {
+  return {
+    provider: route.provider,
+    route: route.route,
+    bound: route.bound,
+    fromHubId: fromHub.id,
+    toHubId: toHub.id,
+    fromName: fromHub.name_en,
+    toName: toHub.name_en,
+    minutes,
+    kind: 'ride',
+  };
+}
+
 function buildEstimatedOption(
   index: JourneyIndexBundle,
   from: JourneyPoint,
@@ -147,7 +184,7 @@ function buildEstimatedOption(
   ordinal: number
 ): IndexedJourneyOption {
   const legs = [...state.legs, finalLeg];
-  const rideMinutes = state.rideMinutes + finalLeg.minutes;
+  const rideMinutesValue = state.rideMinutes + finalLeg.minutes;
   const transfers = Math.max(0, legs.length - 1);
   const firstLeg = legs[0];
   const waitMin = DEFAULT_WAIT_MINUTES[firstLeg.provider];
@@ -158,7 +195,7 @@ function buildEstimatedOption(
   const walkFromStationMin = Math.max(2, walkFromStationMeters / WALK_METERS_PER_MINUTE);
   const walkingMeters = walkToStationMeters + walkFromStationMeters;
   const walkingMinutes = walkToStationMin + walkFromStationMin;
-  const totalMinutes = Math.round(walkingMinutes + rideMinutes + waitMin + transferWaitMinutes);
+  const totalMinutes = Math.round(walkingMinutes + rideMinutesValue + waitMin + transferWaitMinutes);
   const nowMs = Date.now();
   const firstRoute = index.routes[state.routeKeys[0]];
   const boardStopId = state.boardHub.members.find((member) => member.provider === firstLeg.provider)?.stopId || '';
@@ -179,7 +216,7 @@ function buildEstimatedOption(
     walkingMinutes,
     walkingMeters,
     walkingSource: 'estimated',
-    rideMinutes,
+    rideMinutes: rideMinutesValue,
     transferMinutes: 0,
     transferWaitMinutes,
     walkToStationMin,
@@ -192,7 +229,12 @@ function buildEstimatedOption(
     nextBusMin: waitMin,
     departureAtMs: nowMs + waitMin * 60_000,
     fallbackHeadwayMinutes: waitMin,
-    itinerary: { transfers, isDirect: transfers === 0, legs },
+    itinerary: {
+      totalMinutes: Math.round(rideMinutesValue),
+      transfers,
+      isDirect: transfers === 0,
+      legs,
+    },
     boardStopId,
     boardProvider: firstRoute.provider,
     boardRoute: firstRoute.route,
@@ -200,7 +242,10 @@ function buildEstimatedOption(
     boardHub: state.boardHub,
     alightHub: destination.hub,
     geometry,
+    comfortMetrics: estimatedComfort(walkingMinutes, waitMin),
+    comfortScores: comfortScores(),
     arrivalWindow: arrivalWindow(totalMinutes, nowMs),
+    notes: ['approximateWalkingGeometry', 'estimatedComfort', 'estimatedWait'],
   };
 }
 
@@ -290,27 +335,30 @@ async function discoverIndexedCandidates(
     if (destination) {
       const minutes = routeMinutes(route, state.currentSeq, destination.seq);
       if (Number.isFinite(minutes)) {
-        output.push(buildEstimatedOption(index, from, to, state, destination, {
-          provider: route.provider,
-          route: route.route,
-          bound: route.bound,
-          fromHubId: route.hubs[state.currentSeq],
-          toHubId: destination.hub.id,
-          minutes,
-          kind: 'ride',
-        }, ordinal++));
+        const fromHub = index.hubById.get(route.hubs[state.currentSeq]);
+        if (fromHub) {
+          output.push(buildEstimatedOption(
+            index,
+            from,
+            to,
+            state,
+            destination,
+            rideLeg(route, fromHub, destination.hub, minutes),
+            ordinal++
+          ));
+        }
       }
     }
 
-    const transfersSoFar = state.routeKeys.length - 1;
-    if (transfersSoFar >= 2) continue;
+    if (state.routeKeys.length - 1 >= 2) continue;
 
     for (const point of index.routeNeighbors[state.routeKey] || []) {
       if (point.seq <= state.currentSeq) continue;
       const segmentMinutes = routeMinutes(route, state.currentSeq, point.seq);
       if (!Number.isFinite(segmentMinutes)) continue;
       const transferHub = index.hubById.get(point.hubId);
-      if (!transferHub) continue;
+      const fromHub = index.hubById.get(route.hubs[state.currentSeq]);
+      if (!transferHub || !fromHub) continue;
 
       for (const nextService of transferHub.services) {
         if (expansions >= MAX_ROUTE_EXPANSIONS) break;
@@ -324,15 +372,7 @@ async function discoverIndexedCandidates(
           boardHub: state.boardHub,
           walkToMeters: state.walkToMeters,
           routeKeys: [...state.routeKeys, nextService.routeKey],
-          legs: [...state.legs, {
-            provider: route.provider,
-            route: route.route,
-            bound: route.bound,
-            fromHubId: route.hubs[state.currentSeq],
-            toHubId: transferHub.id,
-            minutes: segmentMinutes,
-            kind: 'ride',
-          }],
+          legs: [...state.legs, rideLeg(route, fromHub, transferHub, segmentMinutes)],
           rideMinutes: state.rideMinutes + segmentMinutes,
         });
       }
@@ -360,7 +400,15 @@ async function refineOne(
     walkFrom = null;
   }
 
-  const refined = { ...option };
+  const refined: IndexedJourneyOption = {
+    ...option,
+    itinerary: { ...option.itinerary, legs: option.itinerary.legs.map((leg) => ({ ...leg })) },
+    geometry: option.geometry.map((point) => ({ ...point })),
+    comfortMetrics: { ...option.comfortMetrics, reasons: [...option.comfortMetrics.reasons] },
+    comfortScores: { ...option.comfortScores },
+    notes: [...option.notes],
+  };
+
   if (walkTo && walkFrom) {
     refined.walkToStationMeters = Math.round(walkTo.meters);
     refined.walkFromStationMeters = Math.round(walkFrom.meters);
@@ -369,6 +417,9 @@ async function refineOne(
     refined.walkingMeters = Math.round(walkTo.meters + walkFrom.meters);
     refined.walkingMinutes = walkTo.minutes + walkFrom.minutes;
     refined.walkingSource = walkTo.source === 'routed' && walkFrom.source === 'routed' ? 'routed' : 'estimated';
+    if (refined.walkingSource === 'routed') {
+      refined.notes = refined.notes.filter((note) => note !== 'approximateWalkingGeometry');
+    }
   }
 
   try {
@@ -384,6 +435,7 @@ async function refineOne(
     refined.catchable = departure.catchable;
     refined.nextBusMin = departure.minutes;
     refined.departureAtMs = departure.departureAtMs;
+    if (departure.status === 'live') refined.notes = refined.notes.filter((note) => note !== 'estimatedWait');
   } catch {
     // Keep Stage-1/provider fallback values.
   }
@@ -392,6 +444,7 @@ async function refineOne(
     refined.walkingMinutes + refined.rideMinutes + refined.waitMin + refined.transferMinutes + refined.transferWaitMinutes
   );
   refined.arrivalWindow = arrivalWindow(refined.totalMinutes, Date.now());
+  refined.comfortMetrics = estimatedComfort(refined.walkingMinutes, refined.waitMin);
   return refined;
 }
 
@@ -405,7 +458,10 @@ export async function refineJourneyOptions(
 ): Promise<IndexedJourneyOption[]> {
   const yieldToBrowser = deps.yieldToBrowser || (() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
   const discovered = await discoverIndexedCandidates(index, from, to, yieldToBrowser);
-  const retained = retainPools([...initial.map((option) => ({ ...option })), ...discovered]);
+  const retained = retainPools([
+    ...initial.map((option) => ({ ...option, itinerary: { ...option.itinerary, legs: option.itinerary.legs.map((leg) => ({ ...leg })) } })),
+    ...discovered,
+  ]);
   const enriched = await mapWithConcurrency(retained, ENRICH_CONCURRENCY, (option) =>
     refineOne(option, from, to, deps)
   );
