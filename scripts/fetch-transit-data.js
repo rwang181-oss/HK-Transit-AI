@@ -236,8 +236,42 @@ async function crawlMtr() {
   console.log(`MTR CSV saved: ${csv.trim().split('\n').length - 1} rows`);
 }
 
+async function crawlKmb() {
+  const KMB_BASE = 'https://data.etabus.gov.hk/v1/transport/kmb';
+
+  // Fetch all stops
+  const stopsResp = await getJson(`${KMB_BASE}/stop/`);
+  const rawStops = stopsResp?.data || [];
+  console.log(`KMB stops: ${rawStops.length}`);
+
+  const stops = rawStops.map((s) => ({
+    stopId: s.stop,
+    name_en: s.name_en || '',
+    name_tc: s.name_tc || '',
+    name_sc: s.name_sc || '',
+    lat: Number(s.lat) || 0,
+    lng: Number(s.long) || 0,
+  }));
+
+  // Fetch all route-stops (single bulk endpoint, ~3MB)
+  const routeStopsResp = await getJson(`${KMB_BASE}/route-stop/`);
+  const rawRouteStops = routeStopsResp?.data || [];
+  console.log(`KMB route-stop links: ${rawRouteStops.length}`);
+
+  const routeStops = rawRouteStops.map((rs) => ({
+    route: rs.route,
+    bound: rs.bound,
+    seq: Number(rs.seq),
+    stopId: rs.stop,
+  }));
+
+  writeSnapshot('kmb.json', { stops, routeStops });
+  console.log(`KMB snapshot: ${stops.length} stops, ${routeStops.length} links`);
+}
+
 async function main() {
   fs.mkdirSync(OUT_DIR, { recursive: true });
+  await crawlKmb();
   await crawlCtb();
   await crawlGmb();
   await crawlMtr();

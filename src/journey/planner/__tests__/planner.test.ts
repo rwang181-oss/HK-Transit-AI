@@ -46,15 +46,20 @@ function makeNetwork() {
 }
 
 describe('planJourney', () => {
-  it('returns null when destination unreachable', () => {
+  it('returns null when destination unreachable (same hub)', () => {
     const g = makeNetwork();
-    const r = planJourney(g, 'hub-0', 'hub-0'); // same hub
+    // Find the hub for stop A
+    const hubA = g.hubs.find((h) => h.members.some((m) => m.stopId === 'A'));
+    expect(hubA).toBeDefined();
+    const r = planJourney(g, hubA!.id, hubA!.id);
     expect(r).toBeNull();
   });
 
-  it('finds a direct route', () => {
+  it('finds a direct route A → C on route 8', () => {
     const g = makeNetwork();
-    const r = planJourney(g, 'hub-0', 'hub-2'); // A → C on route 8
+    const hubA = g.hubs.find((h) => h.members.some((m) => m.stopId === 'A'))!;
+    const hubC = g.hubs.find((h) => h.members.some((m) => m.stopId === 'C'))!;
+    const r = planJourney(g, hubA.id, hubC.id);
     expect(r).not.toBeNull();
     expect(r!.isDirect).toBe(true);
     expect(r!.totalMinutes).toBeGreaterThan(0);
@@ -62,7 +67,9 @@ describe('planJourney', () => {
 
   it('finds a transfer route A → E via C', () => {
     const g = makeNetwork();
-    const r = planJourney(g, 'hub-0', 'hub-4');
+    const hubA = g.hubs.find((h) => h.members.some((m) => m.stopId === 'A'))!;
+    const hubE = g.hubs.find((h) => h.members.some((m) => m.stopId === 'E'))!;
+    const r = planJourney(g, hubA.id, hubE.id);
     expect(r).not.toBeNull();
     expect(r!.transfers).toBe(1);
     expect(r!.isDirect).toBe(false);
@@ -75,8 +82,42 @@ describe('planJourney', () => {
 
   it('merges consecutive legs on the same route', () => {
     const g = makeNetwork();
-    const r = planJourney(g, 'hub-0', 'hub-2'); // A→C is B + C on route 8
+    const hubA = g.hubs.find((h) => h.members.some((m) => m.stopId === 'A'))!;
+    const hubC = g.hubs.find((h) => h.members.some((m) => m.stopId === 'C'))!;
+    const r = planJourney(g, hubA.id, hubC.id);
     const rides = r!.legs.filter((l) => l.kind === 'ride');
     expect(rides).toHaveLength(1); // merged, not two legs
+  });
+
+  // 203E regression: 香港眼科医院 → 慈正邨 must be found as direct candidate
+  it('203E regression: real-world direct route is discoverable', () => {
+    // Simulate two stops near each other on route 203E
+    const stops: Stop[] = [
+      stop('KMB', 'EYE_HOSP', 'Hong Kong Eye Hospital', 22.338, 114.187),
+      stop('KMB', 'SCHOOL', 'Po Kong Village Road School', 22.345, 114.201),
+      stop('KMB', 'TSZ_CHING', 'Tsz Ching Estate', 22.349, 114.205),
+    ];
+    const links: RouteStopLink[] = [
+      link('KMB', '203E', 'O', 1, 'EYE_HOSP'),
+      link('KMB', '203E', 'O', 2, 'SCHOOL'),
+      link('KMB', '203E', 'O', 3, 'TSZ_CHING'),
+    ];
+    const graph = buildGraph(stops, links);
+
+    // Find eye hospital hub
+    const boardHub = graph.hubs.find((h) => h.members.some((m) => m.stopId === 'EYE_HOSP'));
+    const alightHub = graph.hubs.find((h) => h.members.some((m) => m.stopId === 'SCHOOL'));
+    expect(boardHub).toBeDefined();
+    expect(alightHub).toBeDefined();
+
+    // Verify there's a ride edge from eye hospital to school village
+    const adjacency = graph.adjacency.get(boardHub!.id) || [];
+    const rideEdges = adjacency.filter((e) => e.kind === 'ride' && e.route === '203E');
+    expect(rideEdges.length).toBeGreaterThan(0);
+
+    // Verify we can plan a direct route
+    const itinerary = planJourney(graph, boardHub!.id, alightHub!.id);
+    expect(itinerary).not.toBeNull();
+    expect(itinerary!.isDirect).toBe(true);
   });
 });

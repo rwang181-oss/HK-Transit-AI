@@ -56,7 +56,8 @@
       "node_modules/(?!(expo|expo-router|@expo|expo-constants|expo-modules-core|expo-linking|expo-localization|expo-location|expo-status-bar|react-native|react-native-web|@react-native|i18next|react-i18next|zustand)/)"
     ],
     "setupFiles": [
-      "<rootDir>/node_modules/jest-expo/src/preset/setup.js"
+      "<rootDir>/node_modules/jest-expo/src/preset/setup.js",
+      "<rootDir>/tests/jest-setup.js"
     ],
     "moduleNameMapper": {
       "^@/(.*)$": "<rootDir>/$1"

@@ -12,7 +12,7 @@ import {
   haversineMeters,
   estimateWalkMinutes,
 } from '@/src/journey/graph/travelTime';
-import * as kmbAPI from '@/src/services/kmbAPI';
+import { resolveKmbTopology } from '@/src/journey/data/kmbTopology';
 import type {
   ComfortMetrics,
   JourneyArrivalWindow,
@@ -28,7 +28,6 @@ import { recalculateJourneyEta } from '@/src/journey/realtime/etaEstimator';
 import { selectDepartureEstimate } from '@/src/journey/realtime/departureSelector';
 import { waitAfterWalking } from '@/src/journey/realtime/navigationTiming';
 
-const KMB_CACHE_KEY = '@hk-transit-ai/kmb-topology-v2';
 const MAX_WALK_TO_STATION_M = 1_200;
 const MAX_WALK_FROM_STATION_M = 1_200;
 const MAX_CANDIDATES_FOR_ETA = 10;
@@ -113,71 +112,57 @@ export interface PlaceSuggestion extends TripPoint {
   secondary?: string;
 }
 
+export interface PendingMapPick {
+  lat: number;
+  lng: number;
+  name: string;
+  target: 'from' | 'to';
+}
+
 interface JourneyState {
   status: 'idle' | 'loading' | 'ready' | 'error';
   error: string | null;
   hubs: StopHub[];
   graph: Graph | null;
   dataWarnings: string[];
+  pendingMapPick: PendingMapPick | null;
   loadData: () => Promise<void>;
   searchStops: (query: string) => StopHub[];
   searchAny: (query: string) => Promise<PlaceSuggestion[]>;
   plan: (from: TripPoint, to: TripPoint, weather?: WeatherSnapshot) => Promise<JourneyOption[]>;
   getHubById: (id: string) => StopHub | undefined;
+  setPendingMapPick: (pick: PendingMapPick | null) => void;
 }
 
-interface CachedTopology {
+interface ProviderResult {
+  provider: ProviderId;
   stops: Stop[];
   links: RouteStopLink[];
-  cachedAt: string;
+  warning?: string;
 }
 
-async function loadKmbData(): Promise<{ stops: Stop[]; links: RouteStopLink[]; warning?: string }> {
-  try {
-    const [stops, routeStops] = await Promise.all([
-      kmbAPI.fetchAllStops(),
-      kmbAPI.fetchAllRouteStops(),
-    ]);
-    const topology: CachedTopology = {
-      stops: stops.map((stop) => ({
-        stopId: stop.stop,
-        name_en: stop.name_en,
-        name_tc: stop.name_tc,
-        name_sc: (stop as any).name_sc || '',
-        lat: Number(stop.lat),
-        lng: Number(stop.long),
-        provider: 'KMB',
-      })),
-      links: routeStops.map((link) => ({
-        route: link.route,
-        bound: link.bound,
-        seq: Number(link.seq),
-        stopId: link.stop,
-        provider: 'KMB',
-      })),
-      cachedAt: new Date().toISOString(),
-    };
-    AsyncStorage.setItem(KMB_CACHE_KEY, JSON.stringify(topology)).catch(() => undefined);
-    return topology;
-  } catch (networkError) {
-    const cached = await AsyncStorage.getItem(KMB_CACHE_KEY);
-    if (!cached) throw networkError;
-    const topology = JSON.parse(cached) as CachedTopology;
-    return {
-      stops: topology.stops,
-      links: topology.links,
-      warning: 'kmbCacheFallback',
-    };
-  }
-}
-
-async function loadStaticProvider(provider: (typeof ALL_PROVIDERS)[number]) {
-  const [stops, routes] = await Promise.all([provider.fetchStops(), provider.fetchRoutes()]);
+/**
+ * Load static provider data (CTB, GMB, MTR) from bundled JSON.
+ * Each provider is loaded independently — one failure does not affect others.
+ */
+async function loadStaticProvider(
+  provider: (typeof ALL_PROVIDERS)[number]
+): Promise<ProviderResult> {
+  const [stops, routes] = await Promise.all([
+    provider.fetchStops(),
+    provider.fetchRoutes(),
+  ]);
   const nested = await Promise.all(
     routes.map((route) => provider.fetchRouteStops(route.route, route.bound))
   );
-  return { stops, links: nested.flat() };
+  return {
+    provider: provider.id,
+    stops,
+    links: nested.flat(),
+  };
 }
+
+// ---- Candidate types (same as before, preserved for route ranking) ----
 
 interface RawCandidate {
   boardHub: StopHub;
@@ -378,7 +363,7 @@ function itineraryForCandidate(candidate: RawCandidate): Itinerary {
         fromName: candidate.boardHub.name_en,
         toName: candidate.alightHub.name_en,
         minutes: candidate.rideMinutes,
-        kind: 'ride',
+        kind: 'ride' as const,
       },
     ],
   };
@@ -535,26 +520,86 @@ export const useJourneyStore = create<JourneyState>((set, get) => ({
   hubs: [],
   graph: null,
   dataWarnings: [],
+  pendingMapPick: null,
 
+  /**
+   * Load all provider data and build the journey graph.
+   *
+   * KMB uses a layered fallback (cache → bundled snapshot → network).
+   * Static providers (CTB/GMB/MTR) use Promise.allSettled so one
+   * failing provider never blocks the others.
+   *
+   * Only when EVERY provider fails do we enter the 'error' state.
+   */
   loadData: async () => {
     if (get().status === 'ready' || get().status === 'loading') return;
-    set({ status: 'loading', error: null });
+    set({ status: 'loading', error: null, dataWarnings: [] });
+
+    const warnings: string[] = [];
+    const allStops: Stop[] = [];
+    const allLinks: RouteStopLink[] = [];
+
+    // --- KMB with layered fallback ---
     try {
-      const kmb = await loadKmbData();
-      const staticProviders = ALL_PROVIDERS.filter((provider) => provider.id !== 'KMB');
-      const loaded = await Promise.all(staticProviders.map(loadStaticProvider));
-      const allStops = [kmb.stops, ...loaded.map((item) => item.stops)].flat();
-      const allLinks = [kmb.links, ...loaded.map((item) => item.links)].flat();
+      const { topology, ready } = await resolveKmbTopology();
+      allStops.push(...topology.stops);
+      allLinks.push(...topology.links);
+      if (topology.source === 'bundled') {
+        warnings.push('kmbBundledFallback');
+      } else if (topology.source === 'cache') {
+        warnings.push('kmbCacheFallback');
+      }
+      // Background refresh — doesn't block planning
+      ready.catch(() => undefined);
+    } catch (kmbError) {
+      warnings.push('kmbUnavailable');
+      console.warn('[journeyStore] KMB data unavailable:', kmbError);
+    }
+
+    // --- Static providers with per-provider isolation ---
+    const staticProviders = ALL_PROVIDERS.filter((p) => p.id !== 'KMB');
+    const results = await Promise.allSettled(
+      staticProviders.map(loadStaticProvider)
+    );
+
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        allStops.push(...result.value.stops);
+        allLinks.push(...result.value.links);
+        if (result.value.warning) warnings.push(result.value.warning);
+      } else {
+        // Individual provider failure — log but continue
+        console.warn('[journeyStore] Provider failed:', result.reason);
+        warnings.push('providerPartialFailure');
+      }
+    }
+
+    // --- Critical: at least one provider must have data ---
+    if (allStops.length === 0) {
+      set({
+        status: 'error',
+        error: 'All transport data sources are currently unavailable. Please try again later.',
+        dataWarnings: warnings,
+      });
+      return;
+    }
+
+    // --- Build graph from whatever data we have ---
+    try {
       const graph = buildGraph(allStops, allLinks);
       set({
         status: 'ready',
         hubs: graph.hubs,
         graph,
         error: null,
-        dataWarnings: kmb.warning ? [kmb.warning] : [],
+        dataWarnings: warnings,
       });
-    } catch (error) {
-      set({ status: 'error', error: String(error) });
+    } catch (buildError) {
+      set({
+        status: 'error',
+        error: `Failed to build transport network: ${buildError}`,
+        dataWarnings: warnings,
+      });
     }
   },
 
@@ -583,17 +628,22 @@ export const useJourneyStore = create<JourneyState>((set, get) => ({
   searchAny: async (query) => {
     const trimmed = query.trim();
     if (!trimmed) return [];
-    const stationHits = get().searchStops(trimmed).slice(0, 8).map((hub) => ({
-      id: `hub:${hub.id}`,
-      kind: 'hub' as const,
-      hubId: hub.id,
-      lat: hub.lat,
-      lng: hub.lng,
-      name: hub.name_en || hub.name_tc || hub.name_sc,
-      secondary: hub.name_tc || hub.name_sc,
-      providers: [...new Set(hub.members.map((member) => member.provider))],
-    }));
+    // Station search from loaded hubs (if available)
+    const stationHits = get()
+      .searchStops(trimmed)
+      .slice(0, 8)
+      .map((hub) => ({
+        id: `hub:${hub.id}`,
+        kind: 'hub' as const,
+        hubId: hub.id,
+        lat: hub.lat,
+        lng: hub.lng,
+        name: hub.name_en || hub.name_tc || hub.name_sc,
+        secondary: hub.name_tc || hub.name_sc,
+        providers: [...new Set(hub.members.map((member) => member.provider))],
+      }));
     if (stationHits.length >= 5) return stationHits;
+    // Fall back to geocoding (lightweight — no graph needed)
     const { geocodeAddress } = await import('@/src/journey/geo/geocode');
     const points = await geocodeAddress(trimmed);
     const placeHits = points.map((point, index) => ({
@@ -636,4 +686,6 @@ export const useJourneyStore = create<JourneyState>((set, get) => ({
   },
 
   getHubById: (id) => get().hubs.find((hub) => hub.id === id),
+
+  setPendingMapPick: (pick) => set({ pendingMapPick: pick }),
 }));

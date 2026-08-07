@@ -66,9 +66,9 @@ export function TransitMap({
         attributionControl: true,
         zoomControl: true,
       });
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
-        attribution: '© OpenStreetMap contributors',
+        attribution: '© OpenStreetMap, © CARTO',
       }).addTo(map);
       map.on('click', (event: any) => {
         pickHandlerRef.current?.({ lat: event.latlng.lat, lng: event.latlng.lng });
