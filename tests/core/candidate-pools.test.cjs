@@ -75,6 +75,21 @@ test('203E direct candidate survives faster transfer alternatives', () => {
   assert.equal(retained.filter((item) => item.isDirect).length, 1);
 });
 
+test('direct pool preserves route diversity before adding same-route variants', () => {
+  const values = [];
+  for (let index = 0; index < 10; index += 1) {
+    values.push(candidate(`203E-${index}`, 0, index + 1, '203E'));
+  }
+  values.push(candidate('3D', 0, 30, '3D'));
+  const retained = pools.retainCandidatePools(values, {
+    direct: 8,
+    oneTransfer: 0,
+    twoTransfer: 0,
+  });
+  assert.ok(retained.some((item) => item.routeKey === 'KMB:203E:O'));
+  assert.ok(retained.some((item) => item.routeKey === 'KMB:3D:O'));
+});
+
 test('candidate pools keep separate 8 8 4 limits', () => {
   const values = [];
   for (let index = 0; index < 12; index += 1) values.push(candidate(`d-${index}`, 0, index));
