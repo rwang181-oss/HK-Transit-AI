@@ -19,6 +19,7 @@ for (const testFile of [
   'tests/core/journey-index.test.cjs',
   'tests/core/progressive-planner.test.cjs',
   'tests/core/progressive-refine.test.cjs',
+  'tests/core/progressive-session.test.cjs',
 ]) {
   const tests = spawnSync(process.execPath, [testFile], { stdio: 'inherit' });
   if (tests.status !== 0) {
