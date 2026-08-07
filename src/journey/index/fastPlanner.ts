@@ -1,5 +1,5 @@
 import type { ProviderId } from '@/src/journey/providers/types';
-import type { JourneyPolicy } from '@/src/journey/model/types';
+import type { JourneyMode, JourneyPolicy } from '@/src/journey/model/types';
 import { haversineMeters } from '../graph/travelTime';
 import { applyJourneyPolicy } from '../planner/routePolicies';
 import type {
@@ -126,7 +126,10 @@ function destinationServices(items: NearbyHub[]): Map<string, DestinationService
   return byRoute;
 }
 
-function findDestinationAfter(values: DestinationService[] | undefined, afterSeq: number): DestinationService | null {
+function findDestinationAfter(
+  values: DestinationService[] | undefined,
+  afterSeq: number
+): DestinationService | null {
   if (!values) return null;
   let best: DestinationService | null = null;
   for (const value of values) {
@@ -150,6 +153,25 @@ function pushCandidate(output: Map<string, Candidate>, candidate: Candidate): vo
   if (!previous || rough < previousRough) output.set(key, candidate);
 }
 
+function rideLeg(
+  route: IndexedRoute,
+  fromHub: IndexedHub,
+  toHub: IndexedHub,
+  minutes: number
+): IndexedJourneyLeg {
+  return {
+    provider: route.provider,
+    route: route.route,
+    bound: route.bound,
+    fromHubId: fromHub.id,
+    toHubId: toHub.id,
+    fromName: fromHub.name_en,
+    toName: toHub.name_en,
+    minutes,
+    kind: 'ride',
+  };
+}
+
 function buildDirectCandidates(
   index: JourneyIndexBundle,
   boardHubs: NearbyHub[],
@@ -171,15 +193,7 @@ function buildDirectCandidates(
         rideMinutes: minutes,
         walkToMeters: board.straightMeters * WALK_ROUTE_FACTOR,
         walkFromMeters: destination.straightMeters * WALK_ROUTE_FACTOR,
-        legs: [{
-          provider: route.provider,
-          route: route.route,
-          bound: route.bound,
-          fromHubId: board.hub.id,
-          toHubId: destination.hub.id,
-          minutes,
-          kind: 'ride',
-        }],
+        legs: [rideLeg(route, board.hub, destination.hub, minutes)],
       });
     }
   }
@@ -223,24 +237,8 @@ function buildOneTransferCandidates(
             walkToMeters: board.straightMeters * WALK_ROUTE_FACTOR,
             walkFromMeters: destination.straightMeters * WALK_ROUTE_FACTOR,
             legs: [
-              {
-                provider: firstRoute.provider,
-                route: firstRoute.route,
-                bound: firstRoute.bound,
-                fromHubId: board.hub.id,
-                toHubId: transferHub.id,
-                minutes: firstRideMinutes,
-                kind: 'ride',
-              },
-              {
-                provider: secondRoute.provider,
-                route: secondRoute.route,
-                bound: secondRoute.bound,
-                fromHubId: transferHub.id,
-                toHubId: destination.hub.id,
-                minutes: secondRideMinutes,
-                kind: 'ride',
-              },
+              rideLeg(firstRoute, board.hub, transferHub, firstRideMinutes),
+              rideLeg(secondRoute, transferHub, destination.hub, secondRideMinutes),
             ],
           });
         }
@@ -260,7 +258,25 @@ function buildArrivalWindow(totalMinutes: number, nowMs: number) {
   };
 }
 
-function candidateToOption(candidate: Candidate, from: JourneyPoint, to: JourneyPoint, index: number): IndexedJourneyOption {
+function estimatedComfort(walkingMinutes: number, rideMinutesValue: number, waitMin: number) {
+  return {
+    outdoorExposureMinutes: Math.round(walkingMinutes + waitMin),
+    indoorTransitMinutes: 0,
+    walkingBurden: walkingMinutes <= 8 ? 'low' as const : walkingMinutes <= 18 ? 'medium' as const : 'high' as const,
+    weatherPenalty: 0,
+    score: 0,
+    confidence: 'estimated' as const,
+    reasons: ['estimatedComfort'],
+  };
+}
+
+function candidateToOption(
+  index: JourneyIndexBundle,
+  candidate: Candidate,
+  from: JourneyPoint,
+  to: JourneyPoint,
+  ordinal: number
+): IndexedJourneyOption {
   const firstLeg = candidate.legs[0];
   const transfers = Math.max(0, candidate.legs.filter((leg) => leg.kind === 'ride').length - 1);
   const waitMin = DEFAULT_WAIT_MINUTES[firstLeg.provider];
@@ -276,24 +292,22 @@ function candidateToOption(candidate: Candidate, from: JourneyPoint, to: Journey
   const nowMs = Date.now();
   const routeParts = candidate.routeKeys[0].split(':') as [ProviderId, string, 'O' | 'I'];
   const boardStopId = candidate.boardHub.members.find((member) => member.provider === firstLeg.provider)?.stopId || '';
-  const transferPoints = candidate.legs
-    .slice(0, -1)
-    .map((leg) => leg.toHubId)
-    .map((hubId) => ({ hubId }));
   const geometry = [
     { lat: from.lat, lng: from.lng, kind: 'start' as const, label: from.name },
     { lat: candidate.boardHub.lat, lng: candidate.boardHub.lng, kind: 'stop' as const, label: candidate.boardHub.name_en },
-    ...transferPoints.map(({ hubId }) => ({ hubId })).map(({ hubId }) => ({ hubId })),
+    ...candidate.legs.slice(0, -1).flatMap((leg) => {
+      const hub = index.hubById.get(leg.toHubId);
+      return hub ? [{ lat: hub.lat, lng: hub.lng, kind: 'stop' as const, label: hub.name_en }] : [];
+    }),
     { lat: candidate.alightHub.lat, lng: candidate.alightHub.lng, kind: 'stop' as const, label: candidate.alightHub.name_en },
     { lat: to.lat, lng: to.lng, kind: 'end' as const, label: to.name },
   ];
-  const resolvedGeometry = geometry.flatMap((point) => {
-    if ('lat' in point) return [point];
-    return [];
-  });
+  const comfortScores = Object.fromEntries(
+    (['recommended', 'fastest', 'shade', 'rain', 'indoor'] as JourneyMode[]).map((mode) => [mode, 0])
+  ) as Record<JourneyMode, number>;
 
   return {
-    id: `indexed-${candidate.routeKeys.join('-')}-${candidate.boardHub.id}-${candidate.alightHub.id}-${index}`,
+    id: `indexed-${candidate.routeKeys.join('-')}-${candidate.boardHub.id}-${candidate.alightHub.id}-${ordinal}`,
     totalMinutes,
     walkingMinutes,
     walkingMeters,
@@ -312,6 +326,7 @@ function candidateToOption(candidate: Candidate, from: JourneyPoint, to: Journey
     departureAtMs: nowMs + waitMin * 60_000,
     fallbackHeadwayMinutes: waitMin,
     itinerary: {
+      totalMinutes: Math.round(rideMinutesValue),
       transfers,
       isDirect: transfers === 0,
       legs: candidate.legs,
@@ -322,8 +337,11 @@ function candidateToOption(candidate: Candidate, from: JourneyPoint, to: Journey
     boardBound: routeParts[2],
     boardHub: candidate.boardHub,
     alightHub: candidate.alightHub,
-    geometry: resolvedGeometry,
+    geometry,
+    comfortMetrics: estimatedComfort(walkingMinutes, rideMinutesValue, waitMin),
+    comfortScores,
     arrivalWindow: buildArrivalWindow(totalMinutes, nowMs),
+    notes: ['approximateWalkingGeometry', 'estimatedComfort', 'estimatedWait'],
   };
 }
 
@@ -349,7 +367,7 @@ export function planFastJourney(
   buildOneTransferCandidates(index, boardHubs, destinationByRoute, candidates, stats, maxTransferExpansions);
 
   const converted = [...candidates.values()].map((candidate, candidateIndex) =>
-    candidateToOption(candidate, from, to, candidateIndex)
+    candidateToOption(index, candidate, from, to, candidateIndex)
   );
   options.onStats?.({ ...stats });
   return applyJourneyPolicy(converted, policy).slice(0, maxResults);
