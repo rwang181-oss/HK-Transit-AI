@@ -44,6 +44,9 @@ if (fs.existsSync(mapPickerPath)) {
   expect(!picker.includes("map.on('move',"), 'map picker must not update React state on every map move frame');
 }
 expect(layout.includes('journey/map-picker'), 'root layout must register the fullscreen map picker route');
+expect(!result.includes('await loadData()'), 'result page must not build the legacy graph before first results');
+expect(!result.includes("useJourneyStore.getState().plan("), 'result page must use progressive planner');
+expect(result.includes('betterResultsAvailable') || result.includes('pendingImprovedOptions'), 'result page must expose pending refined results');
 expect(result.includes('NavigationModal'), 'journey result must present live navigation in a modal');
 expect(result.includes('showRouteMap'), 'journey result map must be optional and rendered after route options');
 expect(result.indexOf('JourneyOptionCard') < result.indexOf('showRouteMap'), 'route cards must appear before the optional map control');
