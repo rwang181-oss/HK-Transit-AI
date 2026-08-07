@@ -1,4 +1,4 @@
-import type { Graph } from '../graph/graphBuilder';
+import type { Graph, Edge } from '../graph/graphBuilder';
 import type { StopHub } from '../graph/stopMerger';
 import { haversineMeters } from '../graph/travelTime';
 
@@ -19,6 +19,14 @@ export interface CandidatePoolItem {
     }>;
   };
   roughMinutes: number;
+}
+
+export interface DirectRouteDiscovery {
+  routeKey: string;
+  boardHub: StopHub;
+  alightHub: StopHub;
+  rideMinutes: number;
+  walkFromMeters: number;
 }
 
 export interface CandidatePoolLimits {
@@ -73,6 +81,71 @@ export function retainCandidatePools<T extends CandidatePoolItem>(
     .filter((candidate) => candidateTransfers(candidate) === 2)
     .slice(0, limits.twoTransfer);
   return [...direct, ...oneTransfer, ...twoTransfer];
+}
+
+function directRouteIndexes(graph: Graph) {
+  const hubRoutes = new Map<string, string[]>();
+  const routeEdges = new Map<string, Map<string, Edge>>();
+  for (const edge of graph.edges) {
+    if (edge.kind !== 'ride') continue;
+    const routeKey = `${edge.provider}:${edge.route}:${edge.bound}`;
+    const routes = hubRoutes.get(edge.from) || [];
+    if (!routes.includes(routeKey)) routes.push(routeKey);
+    hubRoutes.set(edge.from, routes);
+    if (!routeEdges.has(routeKey)) routeEdges.set(routeKey, new Map());
+    const edgesByOrigin = routeEdges.get(routeKey)!;
+    if (!edgesByOrigin.has(edge.from)) edgesByOrigin.set(edge.from, edge);
+  }
+  return { hubRoutes, routeEdges };
+}
+
+export function discoverDirectRouteCandidates(
+  graph: Graph,
+  boardHubs: StopHub[],
+  destination: { lat: number; lng: number },
+  maxWalkFromMeters = 1_200
+): DirectRouteDiscovery[] {
+  const { hubRoutes, routeEdges } = directRouteIndexes(graph);
+  const discovered: DirectRouteDiscovery[] = [];
+  const seen = new Set<string>();
+
+  for (const boardHub of boardHubs) {
+    for (const routeKey of hubRoutes.get(boardHub.id) || []) {
+      const edges = routeEdges.get(routeKey);
+      if (!edges) continue;
+      let currentHubId = boardHub.id;
+      let rideMinutes = 0;
+      const visited = new Set<string>();
+
+      while (edges.has(currentHubId) && !visited.has(currentHubId)) {
+        visited.add(currentHubId);
+        const edge = edges.get(currentHubId)!;
+        rideMinutes += edge.weight;
+        currentHubId = edge.to;
+        const alightHub = graph.hubById.get(currentHubId);
+        if (!alightHub) continue;
+        const walkFromMeters = haversineMeters(
+          alightHub.lat,
+          alightHub.lng,
+          destination.lat,
+          destination.lng
+        );
+        if (walkFromMeters > maxWalkFromMeters) continue;
+        const signature = `${boardHub.id}|${alightHub.id}|${routeKey}`;
+        if (seen.has(signature)) continue;
+        seen.add(signature);
+        discovered.push({
+          routeKey,
+          boardHub,
+          alightHub,
+          rideMinutes,
+          walkFromMeters,
+        });
+      }
+    }
+  }
+
+  return discovered;
 }
 
 export function selectRouteAwareHubs(
