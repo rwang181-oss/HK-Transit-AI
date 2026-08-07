@@ -1,9 +1,7 @@
-name: Verify local-first KMB fix
+name: Verify HK Transit AI
 
 on:
-  push:
-    branches:
-      - fix/journey-local-first-kmb
+  workflow_dispatch:
   pull_request:
     branches:
       - main
