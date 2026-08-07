@@ -1,7 +1,9 @@
 import type { ProviderId } from '@/src/journey/providers/types';
 import type {
+  ComfortMetrics,
   JourneyArrivalWindow,
   JourneyGeometryPoint,
+  JourneyMode,
   JourneyPolicy,
 } from '@/src/journey/model/types';
 
@@ -69,11 +71,16 @@ export interface IndexedJourneyLeg {
   bound: 'O' | 'I';
   fromHubId: string;
   toHubId: string;
+  fromName: string;
+  toName: string;
   minutes: number;
   kind: 'ride' | 'transfer';
 }
 
-/** Passenger-facing route object that does not depend on the legacy graph. */
+/**
+ * Passenger-facing route object that remains structurally compatible with the
+ * existing result cards and navigation store while avoiding the legacy graph.
+ */
 export interface IndexedJourneyOption {
   id: string;
   totalMinutes: number;
@@ -94,6 +101,7 @@ export interface IndexedJourneyOption {
   departureAtMs: number;
   fallbackHeadwayMinutes: number;
   itinerary: {
+    totalMinutes: number;
     transfers: number;
     isDirect: boolean;
     legs: IndexedJourneyLeg[];
@@ -105,7 +113,10 @@ export interface IndexedJourneyOption {
   boardHub: IndexedHub;
   alightHub: IndexedHub;
   geometry: JourneyGeometryPoint[];
+  comfortMetrics: ComfortMetrics;
+  comfortScores: Record<JourneyMode, number>;
   arrivalWindow: JourneyArrivalWindow;
+  notes: Array<'approximateWalkingGeometry' | 'estimatedComfort' | 'estimatedWait'>;
 }
 
 export interface JourneyPoint {
