@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const loader = require('../../.core-test-dist/journey/index/loader.js');
+const fast = require('../../.core-test-dist/journey/index/fastPlanner.js');
 
 const tests = [];
 function test(name, fn) { tests.push({ name, fn }); }
@@ -21,6 +22,56 @@ function fixtureShards() {
     'cells.json': { '11410:2230': ['h1', 'h2'] },
     'routes.json': { 'KMB:1:O': { routeKey: 'KMB:1:O', provider: 'KMB', route: '1', bound: 'O', hubs: ['h1', 'h2'], cumulativeMinutes: [0, 5] } },
     'route-neighbors.json': { 'KMB:1:O': [] },
+  };
+}
+
+function hub(id, lat, lng, services, stopId = id) {
+  return {
+    id,
+    name_en: id,
+    name_tc: id,
+    name_sc: '',
+    lat,
+    lng,
+    members: [{ provider: 'KMB', stopId }],
+    services,
+  };
+}
+
+function makeFastIndex() {
+  const start = hub('eye', 22.32470, 114.18483, [
+    { routeKey: 'KMB:203E:I', seq: 0 },
+    { routeKey: 'KMB:A:I', seq: 0 },
+  ], 'eye-stop');
+  const transfer = hub('transfer', 22.3350, 114.1950, [
+    { routeKey: 'KMB:A:I', seq: 1 },
+    { routeKey: 'KMB:B:I', seq: 0 },
+  ]);
+  const end = hub('school', 22.34526, 114.20479, [
+    { routeKey: 'KMB:203E:I', seq: 2 },
+    { routeKey: 'KMB:B:I', seq: 2 },
+  ], 'school-stop');
+  const middle = hub('middle', 22.3355, 114.1955, [{ routeKey: 'KMB:203E:I', seq: 1 }]);
+  const hubs = [start, transfer, end, middle];
+  return {
+    meta: { schemaVersion: 1, generatedAt: '', hubCount: hubs.length, routeCount: 3, cellCount: 3 },
+    hubs,
+    hubById: new Map(hubs.map((item) => [item.id, item])),
+    cells: {
+      '11418:2232': ['eye'],
+      '11419:2233': ['transfer', 'middle'],
+      '11420:2234': ['school'],
+    },
+    routes: {
+      'KMB:203E:I': { routeKey: 'KMB:203E:I', provider: 'KMB', route: '203E', bound: 'I', hubs: ['eye', 'middle', 'school'], cumulativeMinutes: [0, 10, 20] },
+      'KMB:A:I': { routeKey: 'KMB:A:I', provider: 'KMB', route: 'A', bound: 'I', hubs: ['eye', 'transfer'], cumulativeMinutes: [0, 8] },
+      'KMB:B:I': { routeKey: 'KMB:B:I', provider: 'KMB', route: 'B', bound: 'I', hubs: ['transfer', 'middle', 'school'], cumulativeMinutes: [0, 5, 12] },
+    },
+    routeNeighbors: {
+      'KMB:203E:I': [],
+      'KMB:A:I': [{ hubId: 'transfer', seq: 1 }],
+      'KMB:B:I': [{ hubId: 'transfer', seq: 0 }],
+    },
   };
 }
 
@@ -62,6 +113,57 @@ test('journey index loader rejects malformed schema with a concise error', async
     () => loader.loadJourneyIndex({ fetchImpl }),
     /Journey index unavailable/
   );
+});
+
+test('fast planner discovers 203E directly without full graph search or network dependencies', () => {
+  const index = makeFastIndex();
+  let stats;
+  const results = fast.planFastJourney(
+    index,
+    { lat: 22.32470, lng: 114.18483, name: 'Hong Kong Eye Hospital' },
+    { lat: 22.34526, lng: 114.20479, name: 'Po Kong Village Road School Village' },
+    'recommended',
+    { onStats: (value) => { stats = value; } }
+  );
+  assert.ok(results.some((option) => option.boardRoute === '203E' && option.itinerary.isDirect));
+  assert.ok(results.length <= 5);
+  assert.ok(stats.nearbyHubChecks <= 100);
+  assert.ok(stats.transferExpansions <= 300);
+});
+
+test('fast planner finds a bounded one-transfer alternative from transfer-point services', () => {
+  const index = makeFastIndex();
+  const results = fast.planFastJourney(
+    index,
+    { lat: 22.32470, lng: 114.18483, name: 'Eye Hospital' },
+    { lat: 22.34526, lng: 114.20479, name: 'School Village' },
+    'fastest'
+  );
+  const transfer = results.find((option) => option.itinerary.transfers === 1);
+  assert.ok(transfer, 'one-transfer candidate should be discovered');
+  assert.deepEqual(
+    transfer.itinerary.legs.filter((leg) => leg.kind === 'ride').map((leg) => leg.route),
+    ['A', 'B']
+  );
+});
+
+test('fast planner caps first-stage options at five and preserves direct-first recommendation threshold', () => {
+  const index = makeFastIndex();
+  for (let n = 0; n < 8; n += 1) {
+    const routeKey = `KMB:D${n}:I`;
+    index.routes[routeKey] = { routeKey, provider: 'KMB', route: `D${n}`, bound: 'I', hubs: ['eye', 'school'], cumulativeMinutes: [0, 18 + n] };
+    index.routeNeighbors[routeKey] = [];
+    index.hubById.get('eye').services.push({ routeKey, seq: 0 });
+    index.hubById.get('school').services.push({ routeKey, seq: 1 });
+  }
+  const results = fast.planFastJourney(
+    index,
+    { lat: 22.32470, lng: 114.18483, name: 'Eye Hospital' },
+    { lat: 22.34526, lng: 114.20479, name: 'School Village' },
+    'recommended'
+  );
+  assert.equal(results.length, 5);
+  assert.equal(results[0].itinerary.isDirect, true);
 });
 
 (async () => {
