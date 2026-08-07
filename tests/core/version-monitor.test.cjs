@@ -45,6 +45,27 @@ test('version payload parser accepts only a non-empty build identifier', () => {
   assert.equal(versions.parseVersionPayload(null), null);
 });
 
+test('reload URL preserves route, query, and hash while replacing build id', () => {
+  const result = versions.buildVersionReloadUrl(
+    'https://rwang181-oss.github.io/HK-Transit-AI/journey/result?fromLat=22.3&build=old#details',
+    'build-new'
+  );
+  const url = new URL(result);
+  assert.equal(url.pathname, '/HK-Transit-AI/journey/result');
+  assert.equal(url.searchParams.get('fromLat'), '22.3');
+  assert.deepEqual(url.searchParams.getAll('build'), ['build-new']);
+  assert.equal(url.hash, '#details');
+});
+
+test('reload URL adds a build id when none exists', () => {
+  const result = versions.buildVersionReloadUrl(
+    'https://rwang181-oss.github.io/HK-Transit-AI/',
+    'build-new'
+  );
+  const url = new URL(result);
+  assert.equal(url.searchParams.get('build'), 'build-new');
+});
+
 (async () => {
   for (const { name, fn } of tests) {
     await fn();

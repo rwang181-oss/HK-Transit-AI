@@ -16,6 +16,7 @@ export interface VersionMonitorOptions {
   reloadGuardMs?: number;
   fetchImpl?: typeof fetch;
   now?: () => number;
+  navigate?: (url: string) => void;
   reload?: () => void;
 }
 
@@ -57,6 +58,12 @@ export function shouldReloadVersion(
   return true;
 }
 
+export function buildVersionReloadUrl(currentHref: string, remoteBuildId: string): string {
+  const url = new URL(currentHref);
+  url.searchParams.set('build', remoteBuildId.trim());
+  return url.toString();
+}
+
 function readCurrentBuildId(): string {
   if (typeof document === 'undefined') return '';
   return document
@@ -86,23 +93,31 @@ function writeGuard(guard: ReloadGuard): void {
   }
 }
 
+function belongsToProject(value: string | undefined): boolean {
+  return Boolean(value && /hk-transit|HK-Transit-AI/i.test(value));
+}
+
 async function clearOwnedWebCaches(): Promise<void> {
   if (typeof caches !== 'undefined') {
     try {
       const keys = await caches.keys();
-      await Promise.all(
-        keys
-          .filter((key) => /hk-transit|expo|workbox/i.test(key))
-          .map((key) => caches.delete(key))
-      );
+      await Promise.all(keys.filter(belongsToProject).map((key) => caches.delete(key)));
     } catch {
       // Cache cleanup is best-effort.
     }
   }
+
   if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
     try {
       const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map((registration) => registration.unregister()));
+      await Promise.all(
+        registrations
+          .filter((registration) => {
+            const scriptUrl = registration.active?.scriptURL || registration.waiting?.scriptURL || registration.installing?.scriptURL;
+            return belongsToProject(registration.scope) || belongsToProject(scriptUrl);
+          })
+          .map((registration) => registration.unregister())
+      );
     } catch {
       // Service worker cleanup is best-effort.
     }
@@ -119,7 +134,7 @@ export function startVersionMonitor(options: VersionMonitorOptions = {}): () => 
   const reloadGuardMs = options.reloadGuardMs ?? DEFAULT_RELOAD_GUARD_MS;
   const fetchImpl = options.fetchImpl || window.fetch.bind(window);
   const now = options.now || Date.now;
-  const reload = options.reload || (() => window.location.reload());
+  const navigate = options.navigate || ((url: string) => window.location.assign(url));
   let stopped = false;
   let checking = false;
 
@@ -138,9 +153,16 @@ export function startVersionMonitor(options: VersionMonitorOptions = {}): () => 
       if (!shouldReloadVersion(currentBuildId, remote.buildId, readGuard(), nowMs, reloadGuardMs)) {
         return;
       }
+
       writeGuard({ targetBuildId: remote.buildId, reloadedAt: nowMs });
       await clearOwnedWebCaches();
-      if (!stopped) reload();
+      if (stopped) return;
+
+      if (options.reload) {
+        options.reload();
+      } else {
+        navigate(buildVersionReloadUrl(window.location.href, remote.buildId));
+      }
     } catch {
       // Network failures never interrupt the current page.
     } finally {
@@ -148,10 +170,26 @@ export function startVersionMonitor(options: VersionMonitorOptions = {}): () => 
     }
   };
 
+  const checkWhenVisible = () => {
+    if (typeof document === 'undefined' || document.visibilityState === 'visible') void check();
+  };
+  const checkOnPageShow = () => void check();
+  const checkOnFocus = () => void check();
+  const checkOnOnline = () => void check();
+
   void check();
   const interval = window.setInterval(() => void check(), intervalMs);
+  document.addEventListener('visibilitychange', checkWhenVisible);
+  window.addEventListener('pageshow', checkOnPageShow);
+  window.addEventListener('focus', checkOnFocus);
+  window.addEventListener('online', checkOnOnline);
+
   return () => {
     stopped = true;
     window.clearInterval(interval);
+    document.removeEventListener('visibilitychange', checkWhenVisible);
+    window.removeEventListener('pageshow', checkOnPageShow);
+    window.removeEventListener('focus', checkOnFocus);
+    window.removeEventListener('online', checkOnOnline);
   };
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -16,9 +16,9 @@ import {
   type PlaceSuggestion,
   type TripPoint,
 } from '@/src/stores/journeyStore';
+import { useMapPickerStore } from '@/src/stores/mapPickerStore';
 import { useLocationStore } from '@/src/stores/locationStore';
 import { useWeatherStore } from '@/src/stores/weatherStore';
-import { TransitMap } from '@/src/components/TransitMap';
 import { COLORS } from '@/src/utils/constants';
 
 type Target = 'from' | 'to';
@@ -28,33 +28,12 @@ function providerSummary(item: PlaceSuggestion, translate: (key: string) => stri
   return (item.providers || []).map((provider) => translate(`providers.${provider}`)).join(' · ');
 }
 
-function localSuggestions(
-  query: string,
-  searchStops: ReturnType<typeof useJourneyStore.getState>['searchStops']
-): PlaceSuggestion[] {
-  return searchStops(query).slice(0, 8).map((hub) => ({
-    id: `hub:${hub.id}`,
-    kind: 'hub' as const,
-    hubId: hub.id,
-    lat: hub.lat,
-    lng: hub.lng,
-    name: hub.name_en || hub.name_tc || hub.name_sc,
-    secondary: hub.name_tc || hub.name_sc,
-    providers: [...new Set(hub.members.map((member) => member.provider))],
-  }));
-}
-
 export default function JourneyScreen() {
   const { t } = useTranslation();
   const router = useRouter();
-  const {
-    status,
-    error,
-    dataWarnings,
-    loadData,
-    searchStops,
-    searchAny,
-  } = useJourneyStore();
+  const searchAny = useJourneyStore((state) => state.searchAny);
+  const pendingMapPick = useMapPickerStore((state) => state.pending);
+  const setPendingMapPick = useMapPickerStore((state) => state.setPending);
   const {
     position,
     loading: locationLoading,
@@ -70,7 +49,6 @@ export default function JourneyScreen() {
   const [activeField, setActiveField] = useState<Target | null>(null);
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
-  const [showMap, setShowMap] = useState(false);
 
   const myLocationLabel = t('journey.myLocation');
 
@@ -81,10 +59,8 @@ export default function JourneyScreen() {
         const allowed = await requestPermission();
         if (allowed) await getPosition();
       })();
-    }, 420);
-    return () => {
-      clearTimeout(ambientTimer);
-    };
+    }, 250);
+    return () => clearTimeout(ambientTimer);
   }, [refreshWeather, requestPermission, getPosition]);
 
   useEffect(() => {
@@ -93,6 +69,25 @@ export default function JourneyScreen() {
     setFromPoint(point);
     setFromQuery(myLocationLabel);
   }, [position, fromPoint, myLocationLabel]);
+
+  useEffect(() => {
+    if (!pendingMapPick) return;
+    const point: TripPoint = {
+      lat: pendingMapPick.lat,
+      lng: pendingMapPick.lng,
+      name: pendingMapPick.name,
+    };
+    if (pendingMapPick.target === 'from') {
+      setFromPoint(point);
+      setFromQuery(point.name);
+    } else {
+      setToPoint(point);
+      setToQuery(point.name);
+    }
+    setActiveField(null);
+    setSuggestions([]);
+    setPendingMapPick(null);
+  }, [pendingMapPick, setPendingMapPick]);
 
   const activeQuery = activeField === 'from' ? fromQuery : activeField === 'to' ? toQuery : '';
 
@@ -105,52 +100,25 @@ export default function JourneyScreen() {
       return undefined;
     }
 
-    const topologyTimer = status === 'idle'
-      ? setTimeout(() => void loadData(), 1_200)
-      : null;
-    const local = localSuggestions(query, searchStops);
-    setSuggestions(local);
-    setSearching(local.length === 0);
-
-    if (local.length >= 5) {
-      return () => {
-        cancelled = true;
-        if (topologyTimer) clearTimeout(topologyTimer);
-      };
-    }
-
     const timer = setTimeout(() => {
       setSearching(true);
       void searchAny(query)
         .then((items) => {
           if (!cancelled) setSuggestions(items.slice(0, 8));
         })
+        .catch(() => {
+          if (!cancelled) setSuggestions([]);
+        })
         .finally(() => {
           if (!cancelled) setSearching(false);
         });
-    }, 650);
+    }, 420);
 
     return () => {
       cancelled = true;
       clearTimeout(timer);
-      if (topologyTimer) clearTimeout(topologyTimer);
     };
-  }, [activeField, activeQuery, searchStops, searchAny, status, loadData]);
-
-  const mapPoints = useMemo(() => {
-    const items: Array<{
-      lat: number;
-      lng: number;
-      kind: 'me' | 'start' | 'end';
-      label?: string;
-    }> = [];
-    if (position) items.push({ ...position, kind: 'me', label: myLocationLabel });
-    if (fromPoint) items.push({ lat: fromPoint.lat, lng: fromPoint.lng, kind: 'start', label: fromPoint.name });
-    if (toPoint) items.push({ lat: toPoint.lat, lng: toPoint.lng, kind: 'end', label: toPoint.name });
-    return items;
-  }, [position, fromPoint, toPoint, myLocationLabel]);
-
-  const center = toPoint || fromPoint || position || { lat: 22.3027, lng: 114.1772 };
+  }, [activeField, activeQuery, searchAny]);
 
   const selectSuggestion = (item: PlaceSuggestion) => {
     const point: TripPoint = { lat: item.lat, lng: item.lng, name: item.name };
@@ -163,19 +131,6 @@ export default function JourneyScreen() {
     }
     setActiveField(null);
     setSuggestions([]);
-  };
-
-  const selectMapPoint = (coordinate: { lat: number; lng: number }) => {
-    if (!activeField) return;
-    const point = { ...coordinate, name: t('journey.mapPoint') };
-    if (activeField === 'from') {
-      setFromPoint(point);
-      setFromQuery(point.name);
-    } else {
-      setToPoint(point);
-      setToQuery(point.name);
-    }
-    setActiveField(null);
   };
 
   const useCurrentLocation = async () => {
@@ -196,12 +151,22 @@ export default function JourneyScreen() {
     setToQuery(fromPoint?.name || '');
   };
 
-  const toggleMap = () => {
-    setShowMap((current) => {
-      const next = !current;
-      if (next && !activeField) setActiveField(!fromPoint ? 'from' : 'to');
-      return next;
-    });
+  const openMapPicker = () => {
+    const target: Target = activeField || (!fromPoint ? 'from' : 'to');
+    const params = new URLSearchParams({ target });
+    if (fromPoint) {
+      params.set('fromLat', String(fromPoint.lat));
+      params.set('fromLng', String(fromPoint.lng));
+    }
+    if (toPoint) {
+      params.set('toLat', String(toPoint.lat));
+      params.set('toLng', String(toPoint.lng));
+    }
+    if (position) {
+      params.set('myLat', String(position.lat));
+      params.set('myLng', String(position.lng));
+    }
+    router.push(`/journey/map-picker?${params.toString()}` as never);
   };
 
   const planJourney = () => {
@@ -234,10 +199,7 @@ export default function JourneyScreen() {
       >
         <View style={styles.page}>
           <View style={styles.brandRow}>
-            <View>
-              <Text style={styles.eyebrow}>{t('home.cityLabel')}</Text>
-              <Text style={styles.brand}>HK Transit AI</Text>
-            </View>
+            <Text style={styles.brand}>HK Transit AI</Text>
             {weatherParts.length > 0 ? (
               <View style={styles.weatherPill}>
                 <Text style={styles.weatherText}>{weatherParts.join(' · ')}</Text>
@@ -304,6 +266,15 @@ export default function JourneyScreen() {
             </Pressable>
           </View>
 
+          <Pressable style={styles.mapPickerButton} onPress={openMapPicker}>
+            <Text style={styles.mapPickerIcon}>⌖</Text>
+            <View style={styles.mapPickerTextBlock}>
+              <Text style={styles.mapPickerTitle}>{t('journey.mapPicker')}</Text>
+              <Text style={styles.mapPickerHint}>{t('journey.mapPickerHomeHint')}</Text>
+            </View>
+            <Text style={styles.mapPickerArrow}>›</Text>
+          </Pressable>
+
           {(searching || suggestions.length > 0) ? (
             <View style={styles.suggestionCard}>
               {suggestions.map((item) => (
@@ -331,48 +302,6 @@ export default function JourneyScreen() {
               ) : null}
             </View>
           ) : null}
-
-          <Pressable style={styles.mapToggle} onPress={toggleMap}>
-            <Text style={styles.mapToggleIcon}>⌖</Text>
-            <View style={styles.mapToggleTextBlock}>
-              <Text style={styles.mapToggleTitle}>
-                {showMap ? t('journey.hideMapPicker') : t('journey.showMapPicker')}
-              </Text>
-              {showMap ? <Text style={styles.mapToggleHint}>{t('journey.mapPickerHint')}</Text> : null}
-            </View>
-            <Text style={styles.mapToggleArrow}>{showMap ? '⌃' : '⌄'}</Text>
-          </Pressable>
-
-          {showMap ? (
-            <View style={styles.mapFrame}>
-              <TransitMap
-                center={center}
-                points={mapPoints}
-                height={270}
-                onPickPoint={selectMapPoint}
-              />
-            </View>
-          ) : null}
-
-          {status === 'loading' ? (
-            <View style={styles.notice}>
-              <ActivityIndicator size="small" color={COLORS.hkRed} />
-              <Text style={styles.noticeText}>{t('journey.loadingData')}</Text>
-            </View>
-          ) : status === 'error' ? (
-            <View style={[styles.notice, styles.errorNotice]}>
-              <Text style={styles.errorText}>{t('journey.dataError')}</Text>
-              <Pressable onPress={() => void loadData()}>
-                <Text style={styles.retryText}>{t('common.retry')}</Text>
-              </Pressable>
-            </View>
-          ) : dataWarnings.length > 0 ? (
-            <Text style={styles.warningText}>{t('journey.cachedDataNotice')}</Text>
-          ) : (
-            <Text style={styles.readyText}>{t('journey.routeDataReady')}</Text>
-          )}
-
-          {error ? <Text style={styles.debugError}>{error}</Text> : null}
         </View>
       </ScrollView>
 
@@ -384,7 +313,7 @@ export default function JourneyScreen() {
             onPress={planJourney}
             style={[styles.planButton, !readyToPlan && styles.planButtonDisabled]}
           >
-            <Text style={styles.planButtonText}>{t('journey.planComfortRoute')}</Text>
+            <Text style={styles.planButtonText}>{t('journey.searchRoutes')}</Text>
             <Text style={styles.planArrow}>→</Text>
           </Pressable>
         </View>
@@ -400,15 +329,14 @@ const styles = StyleSheet.create({
   page: { width: '100%', maxWidth: 680, alignSelf: 'center' },
   brandRow: {
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 10,
+    paddingTop: 16,
+    paddingBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 10,
   },
-  eyebrow: { color: COLORS.hkRed, fontSize: 10, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase' },
-  brand: { color: COLORS.textPrimary, fontSize: 18, fontWeight: '800', marginTop: 1 },
+  brand: { color: COLORS.textPrimary, fontSize: 21, fontWeight: '800' },
   weatherPill: {
     backgroundColor: COLORS.bgCard,
     borderRadius: 12,
@@ -421,96 +349,63 @@ const styles = StyleSheet.create({
   weatherText: { color: COLORS.textSecondary, fontSize: 10, fontWeight: '600' },
   searchCard: {
     marginHorizontal: 12,
-    marginTop: 4,
+    marginTop: 8,
     backgroundColor: COLORS.bgCard,
-    borderRadius: 18,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: COLORS.border,
-    padding: 10,
+    padding: 11,
     flexDirection: 'row',
     alignItems: 'center',
     shadowColor: '#102A43',
-    shadowOffset: { width: 0, height: 5 },
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.05,
-    shadowRadius: 12,
+    shadowRadius: 14,
     elevation: 2,
   },
-  routeRail: { width: 20, alignItems: 'center', alignSelf: 'stretch', justifyContent: 'center' },
-  startDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: COLORS.jade },
-  railLine: { width: 2, flex: 1, minHeight: 26, backgroundColor: COLORS.border, marginVertical: 4 },
-  endDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: COLORS.hkRed },
-  fields: { flex: 1, minWidth: 0, marginLeft: 5 },
+  routeRail: { width: 22, alignItems: 'center', alignSelf: 'stretch', justifyContent: 'center' },
+  startDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.jade },
+  railLine: { width: 2, flex: 1, minHeight: 28, backgroundColor: COLORS.border, marginVertical: 4 },
+  endDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.hkRed },
+  fields: { flex: 1, marginLeft: 7 },
   fieldRow: { flexDirection: 'row', alignItems: 'center' },
-  input: {
-    flex: 1,
-    minWidth: 0,
-    minHeight: 46,
-    color: COLORS.textPrimary,
-    fontSize: 16,
-    paddingHorizontal: 9,
-    borderRadius: 11,
-  },
+  input: { flex: 1, minHeight: 45, color: COLORS.textPrimary, fontSize: 15, paddingHorizontal: 10, borderRadius: 12 },
   inputActive: { backgroundColor: COLORS.bgRaised },
-  divider: { height: 1, backgroundColor: COLORS.border, marginHorizontal: 9 },
-  locationButton: { width: 40, height: 40, borderRadius: 11, backgroundColor: '#E7F6F3', alignItems: 'center', justifyContent: 'center' },
-  locationIcon: { color: COLORS.jade, fontSize: 21, fontWeight: '700' },
-  swapButton: { width: 38, height: 38, borderRadius: 12, backgroundColor: COLORS.bgRaised, alignItems: 'center', justifyContent: 'center', marginLeft: 7 },
-  swapText: { color: COLORS.textPrimary, fontSize: 18, fontWeight: '700' },
-  suggestionCard: { marginHorizontal: 12, marginTop: 7, backgroundColor: COLORS.bgCard, borderRadius: 15, borderWidth: 1, borderColor: COLORS.border, overflow: 'hidden' },
-  searchingRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 14 },
-  searchingText: { color: COLORS.textSecondary, fontSize: 12 },
-  suggestionRow: { minHeight: 55, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.border },
-  suggestionIcon: { width: 31, height: 31, borderRadius: 10, backgroundColor: '#E7F6F3', alignItems: 'center', justifyContent: 'center' },
-  placeIcon: { backgroundColor: COLORS.sky },
-  suggestionTextBlock: { flex: 1, minWidth: 0, marginLeft: 10 },
-  suggestionName: { color: COLORS.textPrimary, fontSize: 14, fontWeight: '600' },
-  suggestionMeta: { color: COLORS.textTertiary, fontSize: 10, marginTop: 2 },
-  mapToggle: {
+  divider: { height: 1, backgroundColor: COLORS.border, marginHorizontal: 10 },
+  locationButton: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#E7F6F3', alignItems: 'center', justifyContent: 'center' },
+  locationIcon: { color: COLORS.jade, fontSize: 22, fontWeight: '700' },
+  swapButton: { width: 40, height: 40, borderRadius: 13, backgroundColor: COLORS.bgRaised, alignItems: 'center', justifyContent: 'center', marginLeft: 9 },
+  swapText: { color: COLORS.textPrimary, fontSize: 19, fontWeight: '700' },
+  mapPickerButton: {
     marginHorizontal: 12,
-    marginTop: 10,
-    minHeight: 48,
-    borderRadius: 14,
+    marginTop: 12,
+    minHeight: 58,
+    paddingHorizontal: 14,
+    borderRadius: 17,
+    backgroundColor: COLORS.bgCard,
     borderWidth: 1,
     borderColor: COLORS.border,
-    backgroundColor: COLORS.bgCard,
-    paddingHorizontal: 13,
     flexDirection: 'row',
     alignItems: 'center',
   },
-  mapToggleIcon: { color: COLORS.jade, fontSize: 17, width: 27 },
-  mapToggleTextBlock: { flex: 1 },
-  mapToggleTitle: { color: COLORS.textPrimary, fontSize: 13, fontWeight: '700' },
-  mapToggleHint: { color: COLORS.textTertiary, fontSize: 10, marginTop: 2 },
-  mapToggleArrow: { color: COLORS.textSecondary, fontSize: 16 },
-  mapFrame: { marginHorizontal: 12, marginTop: 8 },
-  notice: { minHeight: 40, marginHorizontal: 14, marginTop: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  noticeText: { color: COLORS.textSecondary, fontSize: 11 },
-  errorNotice: { justifyContent: 'space-between' },
-  errorText: { color: COLORS.hkRed, fontSize: 11 },
-  retryText: { color: COLORS.hkRed, fontSize: 11, fontWeight: '700' },
-  warningText: { color: COLORS.etaWarning, fontSize: 10, textAlign: 'center', marginHorizontal: 18, marginTop: 9 },
-  readyText: { color: COLORS.jade, fontSize: 10, textAlign: 'center', marginTop: 9 },
-  debugError: { color: COLORS.hkRed, fontSize: 9, marginHorizontal: 16, marginTop: 8 },
-  fixedAction: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: COLORS.border,
-    backgroundColor: COLORS.bgSystem,
-    paddingHorizontal: 12,
-    paddingTop: 9,
-    paddingBottom: 9,
-  },
-  fixedActionInner: { width: '100%', maxWidth: 680, alignSelf: 'center' },
-  planButton: {
-    minHeight: 54,
-    backgroundColor: COLORS.hkRed,
-    borderRadius: 16,
-    paddingHorizontal: 17,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 9,
-  },
-  planButtonDisabled: { opacity: 0.42 },
-  planButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', flexShrink: 1, textAlign: 'center' },
-  planArrow: { color: '#FFFFFF', fontSize: 21, marginLeft: 'auto' },
+  mapPickerIcon: { fontSize: 20, color: COLORS.jade, width: 30, textAlign: 'center' },
+  mapPickerTextBlock: { flex: 1, marginLeft: 8 },
+  mapPickerTitle: { color: COLORS.textPrimary, fontSize: 14, fontWeight: '700' },
+  mapPickerHint: { color: COLORS.textTertiary, fontSize: 10, marginTop: 3 },
+  mapPickerArrow: { color: COLORS.textTertiary, fontSize: 25, marginLeft: 8 },
+  suggestionCard: { marginHorizontal: 12, marginTop: 9, backgroundColor: COLORS.bgCard, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, overflow: 'hidden', zIndex: 5 },
+  suggestionRow: { minHeight: 60, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.border },
+  suggestionIcon: { width: 34, height: 34, borderRadius: 12, backgroundColor: '#E7F6F3', alignItems: 'center', justifyContent: 'center' },
+  placeIcon: { backgroundColor: COLORS.sky },
+  suggestionTextBlock: { flex: 1, marginLeft: 11 },
+  suggestionName: { color: COLORS.textPrimary, fontSize: 14, fontWeight: '600' },
+  suggestionMeta: { color: COLORS.textTertiary, fontSize: 11, marginTop: 3 },
+  searchingRow: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16 },
+  searchingText: { color: COLORS.textSecondary, fontSize: 13 },
+  fixedAction: { backgroundColor: COLORS.bgSystem, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border },
+  fixedActionInner: { width: '100%', maxWidth: 680, alignSelf: 'center', paddingHorizontal: 12, paddingTop: 10, paddingBottom: 12 },
+  planButton: { minHeight: 56, backgroundColor: COLORS.hkRed, borderRadius: 18, paddingHorizontal: 19, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  planButtonDisabled: { opacity: 0.4 },
+  planButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  planArrow: { color: '#FFFFFF', fontSize: 23 },
 });
