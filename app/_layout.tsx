@@ -17,6 +17,10 @@ export default function RootLayout() {
       <Stack screenOptions={{ headerShadowVisible: false }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="journey/result" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="journey/map-picker"
+          options={{ headerShown: false, presentation: 'fullScreenModal' }}
+        />
         <Stack.Screen name="journey/stop-eta" options={{ headerShown: true }} />
         <Stack.Screen name="eta/[routeId]" options={{ headerShown: false }} />
       </Stack>
