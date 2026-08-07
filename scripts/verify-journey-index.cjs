@@ -33,6 +33,17 @@ function haversineMeters(a, b) {
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
+function nearestRouteHub(route, hubById, target) {
+  let best = null;
+  route.hubs.forEach((hubId, index) => {
+    const hub = hubById.get(hubId);
+    if (!hub || !Number.isFinite(hub.lat) || !Number.isFinite(hub.lng) || hub.lat === 0 || hub.lng === 0) return;
+    const meters = haversineMeters({ lat: hub.lat, lng: hub.lng }, target);
+    if (!best || meters < best.meters) best = { hub, index, meters };
+  });
+  return best;
+}
+
 const meta = read('meta.json');
 const hubs = read('hubs.json');
 const cells = read('cells.json');
@@ -61,13 +72,16 @@ for (const [routeKey, route] of routeEntries) {
   }
 }
 
-const route203E = routeEntries
-  .filter(([key]) => key === 'KMB:203E:O' || key === 'KMB:203E:I')
-  .map(([, route]) => route);
-if (!route203E.length) fail('KMB 203E route is missing');
+const route203EEntries = routeEntries.filter(([key]) => key === 'KMB:203E:O' || key === 'KMB:203E:I');
+if (!route203EEntries.length) fail('KMB 203E route is missing');
 
 let regressionOk = false;
-for (const route of route203E) {
+const diagnostic = [];
+for (const [routeKey, route] of route203EEntries) {
+  const nearestEye = nearestRouteHub(route, hubById, EYE_HOSPITAL);
+  const nearestSchool = nearestRouteHub(route, hubById, SCHOOL_VILLAGE);
+  diagnostic.push({ routeKey, nearestEye, nearestSchool });
+
   let eyeSeq = -1;
   let schoolSeq = -1;
   route.hubs.forEach((hubId, index) => {
@@ -82,6 +96,15 @@ for (const route of route203E) {
     break;
   }
 }
-if (!regressionOk) fail('203E does not connect the Eye Hospital area to a later School Village area hub');
+if (!regressionOk) {
+  for (const item of diagnostic) {
+    const eye = item.nearestEye;
+    const school = item.nearestSchool;
+    console.error(`[203E diagnostic] ${item.routeKey}`);
+    console.error(`  nearest eye: ${eye ? `${eye.hub.name_en} / ${eye.hub.name_tc} @ ${eye.hub.lat},${eye.hub.lng}, seq=${eye.index}, ${Math.round(eye.meters)}m` : 'none'}`);
+    console.error(`  nearest school: ${school ? `${school.hub.name_en} / ${school.hub.name_tc} @ ${school.hub.lat},${school.hub.lng}, seq=${school.index}, ${Math.round(school.meters)}m` : 'none'}`);
+  }
+  fail('203E does not connect the Eye Hospital area to a later School Village area hub');
+}
 
 console.log(`journey-index verification: PASS (${hubs.length} hubs, ${Object.keys(routes).length} routes, ${Object.keys(cells).length} cells)`);
