@@ -8,6 +8,17 @@ if (compile.status !== 0) {
   fs.rmSync(output, { recursive: true, force: true });
   process.exit(compile.status ?? 1);
 }
-const tests = spawnSync(process.execPath, ['tests/core/run-core-tests.cjs'], { stdio: 'inherit' });
+
+for (const testFile of [
+  'tests/core/run-core-tests.cjs',
+  'tests/core/kmb-topology.test.cjs',
+]) {
+  const tests = spawnSync(process.execPath, [testFile], { stdio: 'inherit' });
+  if (tests.status !== 0) {
+    fs.rmSync(output, { recursive: true, force: true });
+    process.exit(tests.status ?? 1);
+  }
+}
+
 fs.rmSync(output, { recursive: true, force: true });
-process.exit(tests.status ?? 1);
+process.exit(0);
