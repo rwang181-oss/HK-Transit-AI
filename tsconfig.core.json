@@ -20,6 +20,7 @@
     "src/journey/providers/types.ts",
     "src/journey/model/types.ts",
     "src/journey/data/kmbTopology.ts",
+    "src/journey/data/journeyDataLoader.ts",
     "src/journey/graph/stopMerger.ts",
     "src/journey/graph/travelTime.ts",
     "src/journey/graph/graphBuilder.ts",
