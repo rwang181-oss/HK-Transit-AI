@@ -345,6 +345,36 @@ function candidateToOption(
   };
 }
 
+function serviceSequence(option: IndexedJourneyOption): string {
+  return option.itinerary.legs
+    .filter((leg) => leg.kind === 'ride')
+    .map((leg) => `${leg.provider}:${leg.route}:${leg.bound}`)
+    .join('>');
+}
+
+function takeDiverseRanked(ranked: IndexedJourneyOption[], limit: number): IndexedJourneyOption[] {
+  const selected: IndexedJourneyOption[] = [];
+  const selectedIds = new Set<string>();
+  const coveredSequences = new Set<string>();
+
+  for (const option of ranked) {
+    if (selected.length >= limit) break;
+    const sequence = serviceSequence(option);
+    if (coveredSequences.has(sequence)) continue;
+    selected.push(option);
+    selectedIds.add(option.id);
+    coveredSequences.add(sequence);
+  }
+
+  for (const option of ranked) {
+    if (selected.length >= limit) break;
+    if (selectedIds.has(option.id)) continue;
+    selected.push(option);
+    selectedIds.add(option.id);
+  }
+  return selected;
+}
+
 export function planFastJourney(
   index: JourneyIndexBundle,
   from: JourneyPoint,
@@ -370,5 +400,5 @@ export function planFastJourney(
     candidateToOption(index, candidate, from, to, candidateIndex)
   );
   options.onStats?.({ ...stats });
-  return applyJourneyPolicy(converted, policy).slice(0, maxResults);
+  return takeDiverseRanked(applyJourneyPolicy(converted, policy), maxResults);
 }
