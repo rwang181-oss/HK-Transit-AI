@@ -24,8 +24,16 @@ const required = [
   'docs/AGENT_PROMPT.md',
 ];
 
+const generatedDirs = ['node_modules', '.core-test-dist', 'dist'];
+for (const item of generatedDirs) {
+  const target = path.join(root, item);
+  if (fs.existsSync(target)) {
+    fs.rmSync(target, { recursive: true, force: true });
+  }
+}
+
 const missing = required.filter((item) => !fs.existsSync(path.join(root, item)));
-const forbidden = ['node_modules', '.core-test-dist', 'dist'].filter((item) => fs.existsSync(path.join(root, item)));
+const forbidden = generatedDirs.filter((item) => fs.existsSync(path.join(root, item)));
 
 let gmbWarning = null;
 try {
