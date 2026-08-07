@@ -45,14 +45,41 @@ function candidateTransfers(candidate: CandidatePoolItem): number {
   return candidate.isDirect ? 0 : candidate.itinerary?.transfers ?? 99;
 }
 
+function serviceSequence(candidate: CandidatePoolItem): string {
+  if (candidate.isDirect) return candidate.routeKey;
+  return candidate.itinerary?.legs
+    .filter((leg) => leg.kind === 'ride')
+    .map((leg) => `${leg.provider}:${leg.route}:${leg.bound}`)
+    .join('|') || candidate.routeKey;
+}
+
 function candidateSignature(candidate: CandidatePoolItem): string {
-  const sequence = candidate.isDirect
-    ? candidate.routeKey
-    : candidate.itinerary?.legs
-        .filter((leg) => leg.kind === 'ride')
-        .map((leg) => `${leg.provider}:${leg.route}:${leg.bound}:${leg.fromHubId}:${leg.toHubId}`)
-        .join('|') || candidate.routeKey;
-  return `${sequence}|${candidate.boardHub.id}|${candidate.alightHub.id}`;
+  return `${serviceSequence(candidate)}|${candidate.boardHub.id}|${candidate.alightHub.id}`;
+}
+
+function takeDiverse<T extends CandidatePoolItem>(values: T[], limit: number): T[] {
+  if (limit <= 0) return [];
+  const selected: T[] = [];
+  const selectedSignatures = new Set<string>();
+  const coveredSequences = new Set<string>();
+
+  for (const candidate of values) {
+    if (selected.length >= limit) break;
+    const sequence = serviceSequence(candidate);
+    if (coveredSequences.has(sequence)) continue;
+    selected.push(candidate);
+    selectedSignatures.add(candidateSignature(candidate));
+    coveredSequences.add(sequence);
+  }
+
+  for (const candidate of values) {
+    if (selected.length >= limit) break;
+    const signature = candidateSignature(candidate);
+    if (selectedSignatures.has(signature)) continue;
+    selected.push(candidate);
+    selectedSignatures.add(signature);
+  }
+  return selected;
 }
 
 export function retainCandidatePools<T extends CandidatePoolItem>(
@@ -73,13 +100,18 @@ export function retainCandidatePools<T extends CandidatePoolItem>(
   const values = [...bestBySignature.values()].sort(
     (a, b) => a.roughMinutes - b.roughMinutes
   );
-  const direct = values.filter((candidate) => candidateTransfers(candidate) === 0).slice(0, limits.direct);
-  const oneTransfer = values
-    .filter((candidate) => candidateTransfers(candidate) === 1)
-    .slice(0, limits.oneTransfer);
-  const twoTransfer = values
-    .filter((candidate) => candidateTransfers(candidate) === 2)
-    .slice(0, limits.twoTransfer);
+  const direct = takeDiverse(
+    values.filter((candidate) => candidateTransfers(candidate) === 0),
+    limits.direct
+  );
+  const oneTransfer = takeDiverse(
+    values.filter((candidate) => candidateTransfers(candidate) === 1),
+    limits.oneTransfer
+  );
+  const twoTransfer = takeDiverse(
+    values.filter((candidate) => candidateTransfers(candidate) === 2),
+    limits.twoTransfer
+  );
   return [...direct, ...oneTransfer, ...twoTransfer];
 }
 
