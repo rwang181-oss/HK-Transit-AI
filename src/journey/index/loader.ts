@@ -16,10 +16,24 @@ const SHARDS = [
 ] as const;
 
 let cachedPromise: Promise<JourneyIndexBundle> | null = null;
+let cachedRequestKey = '';
 
 function normalizedBasePath(value: string): string {
   const trimmed = value.trim().replace(/\/+$/, '');
   return trimmed || DEFAULT_BASE_PATH;
+}
+
+function readCurrentBuildId(): string {
+  if (typeof document === 'undefined') return '';
+  return document
+    .querySelector('meta[name="hk-transit-build"]')
+    ?.getAttribute('content')
+    ?.trim() || '';
+}
+
+function requestUrl(basePath: string, name: string, buildId: string): string {
+  const base = `${basePath}/${name}`;
+  return buildId ? `${base}?build=${encodeURIComponent(buildId)}` : base;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -61,20 +75,25 @@ function parseBundle(values: unknown[]): JourneyIndexBundle {
 
 export function resetJourneyIndexCache(): void {
   cachedPromise = null;
+  cachedRequestKey = '';
 }
 
 export function loadJourneyIndex(options: {
   basePath?: string;
+  buildId?: string;
   fetchImpl?: typeof fetch;
 } = {}): Promise<JourneyIndexBundle> {
-  if (cachedPromise) return cachedPromise;
-
   const basePath = normalizedBasePath(options.basePath || DEFAULT_BASE_PATH);
+  const buildId = (options.buildId ?? readCurrentBuildId()).trim();
+  const requestKey = `${basePath}|${buildId}`;
+  if (cachedPromise && cachedRequestKey === requestKey) return cachedPromise;
+
   const fetchImpl = options.fetchImpl || fetch;
+  cachedRequestKey = requestKey;
   cachedPromise = Promise.all(
     SHARDS.map(async (name) => {
-      const response = await fetchImpl(`${basePath}/${name}`, {
-        cache: 'force-cache',
+      const response = await fetchImpl(requestUrl(basePath, name, buildId), {
+        cache: 'default',
         headers: { Accept: 'application/json' },
       });
       if (!response.ok) throw new Error('Journey index unavailable');
@@ -83,7 +102,10 @@ export function loadJourneyIndex(options: {
   )
     .then(parseBundle)
     .catch((error) => {
-      cachedPromise = null;
+      if (cachedRequestKey === requestKey) {
+        cachedPromise = null;
+        cachedRequestKey = '';
+      }
       if (error instanceof Error && error.message === 'Journey index unavailable') throw error;
       throw new Error('Journey index unavailable');
     });
