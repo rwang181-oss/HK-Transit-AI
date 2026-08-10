@@ -291,7 +291,6 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
             );
             phase = progress.phase;
             activeLegIndex = progress.activeLegIndex;
-            phaseStartedAtMs = nowMs;
           }
           if (
             phase === 'walkingToDestination' &&
@@ -309,7 +308,6 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
             );
             phase = progress.phase;
             activeLegIndex = progress.activeLegIndex;
-            phaseStartedAtMs = nowMs;
           }
 
           const timing = calculateLiveTiming(
@@ -368,7 +366,10 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       { phase: current.phase, activeLegIndex: current.activeLegIndex },
       current.option.itinerary.legs
     );
-    const phaseStartedAtMs = Date.now();
+    const nowMs = Date.now();
+    const phaseStartedAtMs = progress.phase === 'riding' || progress.phase === 'walkingTransfer'
+      ? nowMs
+      : current.phaseStartedAtMs ?? nowMs;
     const timing = calculateLiveTiming(
       progress.phase,
       progress.activeLegIndex,
@@ -377,7 +378,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       current.destination,
       current.currentPosition,
       current.speed,
-      phaseStartedAtMs
+      nowMs
     );
     set({
       phase: progress.phase,
