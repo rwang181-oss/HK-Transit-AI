@@ -10,6 +10,8 @@ const MTR_HEADER = [
   'English Name',
   'Sequence',
 ];
+const MIN_MTR_ROWS = 200;
+const MIN_MTR_STOPS = 90;
 
 function parseCsvRow(row) {
   const fields = [];
@@ -55,11 +57,36 @@ function parseMtrStationsCsv(csv) {
   }, []);
 }
 
-function writeMtrStationsSnapshot(outputDir, csv) {
-  const stations = parseMtrStationsCsv(csv);
-  fs.mkdirSync(outputDir, { recursive: true });
-  fs.writeFileSync(path.join(outputDir, 'mtr_stations.json'), `${JSON.stringify(stations)}\n`);
-  return stations;
+function validateMtrStations(stations) {
+  if (stations.length < MIN_MTR_ROWS) {
+    throw new Error(`MTR station CSV has ${stations.length} valid rows; expected at least ${MIN_MTR_ROWS}`);
+  }
+  const stopCount = new Set(stations.map((station) => station.code)).size;
+  if (stopCount < MIN_MTR_STOPS) {
+    throw new Error(`MTR station CSV has ${stopCount} unique stops; expected at least ${MIN_MTR_STOPS}`);
+  }
 }
 
-module.exports = { parseMtrStationsCsv, writeMtrStationsSnapshot };
+function writeMtrStationsSnapshots(outputDir, csv) {
+  const stations = parseMtrStationsCsv(csv);
+  validateMtrStations(stations);
+  fs.mkdirSync(outputDir, { recursive: true });
+  const token = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const csvTarget = path.join(outputDir, 'mtr_stations.csv');
+  const jsonTarget = path.join(outputDir, 'mtr_stations.json');
+  const csvTemp = path.join(outputDir, `.mtr_stations.csv.${token}.tmp`);
+  const jsonTemp = path.join(outputDir, `.mtr_stations.json.${token}.tmp`);
+
+  try {
+    fs.writeFileSync(csvTemp, csv);
+    fs.writeFileSync(jsonTemp, `${JSON.stringify(stations)}\n`);
+    fs.renameSync(csvTemp, csvTarget);
+    fs.renameSync(jsonTemp, jsonTarget);
+    return stations;
+  } finally {
+    fs.rmSync(csvTemp, { force: true });
+    fs.rmSync(jsonTemp, { force: true });
+  }
+}
+
+module.exports = { parseMtrStationsCsv, validateMtrStations, writeMtrStationsSnapshots };

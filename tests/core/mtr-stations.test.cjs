@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { parseMtrStationsCsv, writeMtrStationsSnapshot } = require('../../scripts/mtr-stations.cjs');
+const { parseMtrStationsCsv, writeMtrStationsSnapshots } = require('../../scripts/mtr-stations.cjs');
 
 const csv = [
   '"Line Code","Direction","Station Code","Station ID","Chinese Name","English Name","Sequence"',
@@ -18,10 +18,27 @@ assert.deepEqual(parseMtrStationsCsv(csv), [
 
 const output = fs.mkdtempSync(path.join(os.tmpdir(), 'hk-transit-mtr-'));
 try {
-  const rows = writeMtrStationsSnapshot(output, csv);
-  assert.equal(rows.length, 2);
+  const csvSnapshot = path.join(output, 'mtr_stations.csv');
+  const jsonSnapshot = path.join(output, 'mtr_stations.json');
+  const previousCsv = 'existing CSV snapshot\n';
+  const previousJson = '[{"existing":true}]\n';
+  fs.writeFileSync(csvSnapshot, previousCsv);
+  fs.writeFileSync(jsonSnapshot, previousJson);
+
+  const headerOnly = '"Line Code","Direction","Station Code","Station ID","Chinese Name","English Name","Sequence"\n';
+  for (const rejectedCsv of [headerOnly, 'not the official MTR CSV\n']) {
+    assert.throws(() => writeMtrStationsSnapshots(output, rejectedCsv));
+    assert.equal(fs.readFileSync(csvSnapshot, 'utf8'), previousCsv);
+    assert.equal(fs.readFileSync(jsonSnapshot, 'utf8'), previousJson);
+  }
+
+  const currentCsv = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'data', 'mtr_stations.csv'), 'utf8');
+  const rows = writeMtrStationsSnapshots(output, currentCsv);
+  assert.ok(rows.length >= 200);
+  assert.ok(new Set(rows.map((station) => station.code)).size >= 90);
+  assert.equal(fs.readFileSync(csvSnapshot, 'utf8'), currentCsv);
   assert.deepEqual(
-    JSON.parse(fs.readFileSync(path.join(output, 'mtr_stations.json'), 'utf8')),
+    JSON.parse(fs.readFileSync(jsonSnapshot, 'utf8')),
     rows,
   );
 } finally {

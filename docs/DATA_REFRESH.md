@@ -31,6 +31,8 @@ The script writes:
 
 The MTR CSV download and JSON conversion happen in the same refresh command, so the generated journey index uses the refreshed MTR station data rather than a stale JSON snapshot.
 
+The refresh validates that the MTR download contains at least 200 usable line-direction rows and 90 unique station codes before replacing either MTR snapshot. Rejected CSV input leaves the existing `mtr_stations.csv` and `mtr_stations.json` files unchanged.
+
 ## Expected GMB schema
 
 ```json
