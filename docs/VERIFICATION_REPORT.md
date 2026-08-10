@@ -34,13 +34,13 @@ Exit code: `0`.
 npm test
 ```
 
-Exit code: `0`. Jest reported 9 passed suites, 46 passed tests, 0 failures and 0 snapshots.
+Exit code: `0`. Jest reported 9 passed suites, 47 passed tests, 0 failures and 0 snapshots.
 
 ```powershell
 npm run build:web
 ```
 
-Exit code: `0`. Expo bundled 895 modules, exported `dist`, and the post-build step created `.nojekyll`, `version.json`, and the SPA `404.html` fallback.
+Exit code: `0`. Expo bundled 896 modules, exported `dist`, and the post-build step created `.nojekyll`, `version.json`, and the SPA `404.html` fallback.
 
 Additional focused evidence:
 
@@ -60,9 +60,10 @@ Both commands exited `0`. The offline structural check covers the local React ty
 - The search screen keeps the partial-provider warning visible beside the no-results state.
 - The live-route regression now exercises the default 25-metre threshold rather than supplying the same value explicitly.
 - `react-native-web` was restored to `package.json` and synchronized with `package-lock.json`.
+- The web map now uses one authoritative follow flag for Leaflet drag/recenter events and recentres in the same update that renders a new GPS marker. A mocked-Leaflet regression covers drag-to-disable, immediate recenter, and a later followed GPS update at the requested zoom.
 
 ## Acceptance status and boundaries
 
-Browser acceptance is pending. No phone-width (`390×844`) or desktop (`1440×900`) browser behaviour is claimed in this report; those checks are assigned to the Task 8 controller.
+Browser acceptance is pending. No phone-width (`390×844`) or desktop (`1440×900`) browser pass is claimed in this report; those checks are assigned to the Task 8 controller. The recenter-follow correction has automated coverage, but its real-browser recheck is still pending.
 
 The source audit confirms the home component renders `HK Transit`, translation-key parity passes, and the generated journey index contains all four required providers. This automated pass does not verify signed iOS builds, physical-device location behaviour, native MapKit behaviour, App Store signing, or submission readiness. The existing native/iOS boundary was not expanded.

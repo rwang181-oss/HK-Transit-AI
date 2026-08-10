@@ -14,6 +14,7 @@ import {
   type MapPath,
   type MapPoint,
 } from '@/src/components/transitMapInitialization';
+import { loadLeaflet } from '@/src/components/loadLeaflet';
 import { COLORS } from '@/src/utils/constants';
 
 export type { MapPath, MapPoint } from '@/src/components/transitMapInitialization';
@@ -65,6 +66,7 @@ export function TransitMap({
   const leafletRef = useRef<any>(null);
   const pickHandlerRef = useRef(onPickPoint);
   const initializationRef = useRef<ReturnType<typeof createTransitMapInitialization> | null>(null);
+  const followingRef = useRef(true);
   const [loading, setLoading] = useState(Platform.OS === 'web');
   const [mapError, setMapError] = useState(false);
   const [following, setFollowing] = useState(true);
@@ -83,9 +85,8 @@ export function TransitMap({
     void (async () => {
       try {
         ensureLeafletCss();
-        const module = await import('leaflet');
+        const L = await loadLeaflet();
         if (disposed || !containerRef.current) return;
-        const L = module.default || module;
         const initial = initializationRef.current!.consume();
         leafletRef.current = L;
         map = L.map(containerRef.current as any, {
@@ -115,7 +116,10 @@ export function TransitMap({
         map.on('click', (event: any) => {
           pickHandlerRef.current?.({ lat: event.latlng.lat, lng: event.latlng.lng });
         });
-        map.on('dragstart', () => setFollowing(false));
+        map.on('dragstart', () => {
+          followingRef.current = false;
+          setFollowing(false);
+        });
         map.whenReady(() => {
           if (!disposed) setLoading(false);
         });
@@ -152,7 +156,14 @@ export function TransitMap({
     const L = leafletRef.current;
     if (!map || !L) return;
     renderLayers(map, L, points, paths, !followPoint);
-  }, [points, paths, followPoint, mapReadyVersion]);
+    if (followingRef.current && followPoint) {
+      map.setView(
+        [followPoint.lat, followPoint.lng],
+        followZoom ?? Math.max(map.getZoom(), 16),
+        { animate: false }
+      );
+    }
+  }, [points, paths, followPoint?.lat, followPoint?.lng, followZoom, mapReadyVersion]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -160,17 +171,8 @@ export function TransitMap({
     map.setView([center.lat, center.lng], map.getZoom(), { animate: false });
   }, [center.lat, center.lng, followPoint, mapReadyVersion]);
 
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !following || !followPoint) return;
-    map.setView(
-      [followPoint.lat, followPoint.lng],
-      followZoom ?? Math.max(map.getZoom(), 16),
-      { animate: false }
-    );
-  }, [following, followPoint?.lat, followPoint?.lng, followZoom, mapReadyVersion]);
-
   const recenter = () => {
+    followingRef.current = true;
     setFollowing(true);
     const map = mapRef.current;
     if (!map || !followPoint) return;
