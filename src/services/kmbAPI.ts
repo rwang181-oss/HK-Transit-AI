@@ -4,6 +4,7 @@ import {
   resolveKmbTopology,
   type KmbTopology,
 } from '@/src/journey/data/kmbTopology';
+import { loadKmbSnapshot } from '@/src/journey/providers/kmbSnapshotLoader';
 
 export interface Route {
   route: string;
@@ -109,9 +110,9 @@ async function loadTopology(): Promise<KmbTopology> {
   if (topologyPromise) return topologyPromise;
 
   topologyPromise = (async () => {
-    const bundledModule = await import('@/src/journey/providers/kmbSnapshot');
+    const bundled = await loadKmbSnapshot();
     const result = await resolveKmbTopology({
-      bundled: bundledModule.default,
+      bundled,
       fetchFresh: fetchLiveTopology,
       persistFresh: (fresh) => {
         topologyPromise = Promise.resolve(fresh);

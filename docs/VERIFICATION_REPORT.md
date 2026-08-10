@@ -34,13 +34,13 @@ Exit code: `0`.
 npm test
 ```
 
-Exit code: `0`. Jest reported 9 passed suites, 45 passed tests, 0 failures and 0 snapshots.
+Exit code: `0`. Jest reported 9 passed suites, 46 passed tests, 0 failures and 0 snapshots.
 
 ```powershell
 npm run build:web
 ```
 
-Exit code: `0`. Expo bundled 894 modules, exported `dist`, and the post-build step created `.nojekyll`, `version.json`, and the SPA `404.html` fallback.
+Exit code: `0`. Expo bundled 895 modules, exported `dist`, and the post-build step created `.nojekyll`, `version.json`, and the SPA `404.html` fallback.
 
 Additional focused evidence:
 
@@ -55,7 +55,8 @@ Both commands exited `0`. The offline structural check covers the local React ty
 
 - `scripts/verify-types.cjs` now invokes the installed TypeScript JavaScript entry point through Node instead of spawning `npx.cmd`, which Node 24 rejects with `EINVAL` on Windows.
 - The offline React stub includes `useCallback`, and the journey-store plan default is explicitly typed as `JourneyPolicy`.
-- Legacy Jest fixtures now resolve stable hashed hub IDs from stop membership, isolate the KMB request cache per test, assert current request options, and test the bundled-topology-era cache contract.
+- Legacy Jest fixtures now resolve stable hashed hub IDs from stop membership, isolate the KMB request cache per test, and assert current request options. The KMB service-adapter suite also verifies exact bundled stop/route-stop mapping and one shared topology load across both public adapters.
+- The Windows spawn regression asserts the exact Node executable and resolved `typescript/bin/tsc` arguments, plus the explicit no-local-TypeScript `cmd.exe` fallback.
 - The search screen keeps the partial-provider warning visible beside the no-results state.
 - The live-route regression now exercises the default 25-metre threshold rather than supplying the same value explicitly.
 - `react-native-web` was restored to `package.json` and synchronized with `package-lock.json`.
