@@ -53,6 +53,23 @@ assert.equal(
   index.routes['KMB:203E:O'].hubs.length
 );
 
+const mtrIndex = buildJourneyIndex({
+  MTR: {
+    stops: [
+      { stopId: 'LMC', name_en: 'Lok Ma Chau', name_tc: '', lat: 22.52, lng: 114.06 },
+      { stopId: 'SHS', name_en: 'Sheung Shui', name_tc: '', lat: 22.50, lng: 114.12 },
+    ],
+    links: [
+      { route: 'EAL', dir: 'LMC-DT', seq: 1, stopId: 'LMC' },
+      { route: 'EAL', dir: 'LMC-DT', seq: 2, stopId: 'SHS' },
+      { route: 'EAL', dir: 'LMC-UT', seq: 1, stopId: 'SHS' },
+      { route: 'EAL', dir: 'LMC-UT', seq: 2, stopId: 'LMC' },
+    ],
+  },
+});
+assert.ok(mtrIndex.routes['MTR:EAL:I'], 'branch DT direction must produce an inbound MTR route');
+assert.ok(mtrIndex.routes['MTR:EAL:O'], 'branch UT direction must produce an outbound MTR route');
+
 const eyeHub = index.hubs.find((hub) => hub.id === 'hub-eye');
 const junctionHub = index.hubs.find((hub) => hub.id === 'hub-junction');
 assert.ok(eyeHub);

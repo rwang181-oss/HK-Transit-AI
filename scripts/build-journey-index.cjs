@@ -100,9 +100,10 @@ function normalizeStop(provider, raw) {
 }
 
 function normalizeLink(provider, raw) {
+  const direction = String(raw.direction || raw.dir || '');
   return {
     route: String(raw.route || raw.line || ''),
-    bound: raw.bound === 'I' || raw.direction === 'DT' || raw.dir === 'DT' ? 'I' : 'O',
+    bound: raw.bound === 'I' || direction === 'DT' || direction.endsWith('-DT') ? 'I' : 'O',
     seq: finiteNumber(raw.seq),
     stopId: String(raw.stopId || raw.stop || raw.stationCode || raw.code || ''),
     provider,

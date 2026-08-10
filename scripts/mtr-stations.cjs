@@ -12,6 +12,7 @@ const MTR_HEADER = [
 ];
 const MIN_MTR_ROWS = 200;
 const MIN_MTR_STOPS = 90;
+const MTR_DIRECTION_PATTERN = /^(?:[A-Z]+-)?(?:DT|UT)$/;
 
 function parseCsvRow(row) {
   const fields = [];
@@ -47,14 +48,18 @@ function parseMtrStationsCsv(csv) {
     throw new Error('Unexpected MTR station CSV header');
   }
 
-  return rows.reduce((stations, row) => {
-    const [line, dir, code, id, tc, en, rawSeq] = parseCsvRow(row);
-    const seq = Number(rawSeq);
-    if (line && dir && code && Number.isFinite(seq)) {
-      stations.push({ line, dir, code, id, tc, en, seq });
-    }
-    return stations;
-  }, []);
+  return rows
+    .map((row) => parseCsvRow(row))
+    .filter((fields) => fields.some((field) => field.trim()))
+    .map(([line, dir, code, id, tc, en, rawSeq]) => ({
+      line,
+      dir,
+      code,
+      id,
+      tc,
+      en,
+      seq: Number(rawSeq),
+    }));
 }
 
 function validateMtrStations(stations) {
@@ -65,27 +70,79 @@ function validateMtrStations(stations) {
   if (stopCount < MIN_MTR_STOPS) {
     throw new Error(`MTR station CSV has ${stopCount} unique stops; expected at least ${MIN_MTR_STOPS}`);
   }
+
+  for (const station of stations) {
+    if (!station.line || !station.code) throw new Error('MTR station CSV has a row without a usable route or stop code');
+    if (!MTR_DIRECTION_PATTERN.test(station.dir)) {
+      throw new Error(`MTR station CSV has unsupported direction ${station.dir || '(blank)'}`);
+    }
+    if (!Number.isInteger(station.seq) || station.seq <= 0) {
+      throw new Error(`MTR station CSV has invalid sequence ${Number.isNaN(station.seq) ? '(blank)' : station.seq}`);
+    }
+  }
+
+  const routes = new Map();
+  for (const station of stations) {
+    const routeKey = `${station.line}:${station.dir}`;
+    if (!routes.has(routeKey)) routes.set(routeKey, new Map());
+    routes.get(routeKey).set(station.seq, station.code);
+  }
+  const hasAdjacentLink = [...routes.values()].some((stopsBySequence) =>
+    [...stopsBySequence.entries()].some(([seq, code]) =>
+      stopsBySequence.has(seq + 1) && stopsBySequence.get(seq + 1) !== code,
+    ),
+  );
+  if (!hasAdjacentLink) throw new Error('MTR station CSV does not produce usable adjacent route links');
 }
 
-function writeMtrStationsSnapshots(outputDir, csv) {
+function writeMtrStationsSnapshots(outputDir, csv, { renameSync = fs.renameSync } = {}) {
   const stations = parseMtrStationsCsv(csv);
   validateMtrStations(stations);
   fs.mkdirSync(outputDir, { recursive: true });
   const token = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const csvTarget = path.join(outputDir, 'mtr_stations.csv');
-  const jsonTarget = path.join(outputDir, 'mtr_stations.json');
-  const csvTemp = path.join(outputDir, `.mtr_stations.csv.${token}.tmp`);
-  const jsonTemp = path.join(outputDir, `.mtr_stations.json.${token}.tmp`);
+  const snapshots = [
+    { target: path.join(outputDir, 'mtr_stations.csv'), content: csv },
+    { target: path.join(outputDir, 'mtr_stations.json'), content: `${JSON.stringify(stations)}\n` },
+  ].map((snapshot) => ({
+    ...snapshot,
+    temp: path.join(outputDir, `.${path.basename(snapshot.target)}.${token}.tmp`),
+    backup: path.join(outputDir, `.${path.basename(snapshot.target)}.${token}.backup`),
+    hadOriginal: false,
+    replaced: false,
+  }));
+  let rollbackFailed = false;
 
   try {
-    fs.writeFileSync(csvTemp, csv);
-    fs.writeFileSync(jsonTemp, `${JSON.stringify(stations)}\n`);
-    fs.renameSync(csvTemp, csvTarget);
-    fs.renameSync(jsonTemp, jsonTarget);
+    for (const snapshot of snapshots) fs.writeFileSync(snapshot.temp, snapshot.content);
+    for (const snapshot of snapshots) {
+      if (fs.existsSync(snapshot.target)) {
+        renameSync(snapshot.target, snapshot.backup);
+        snapshot.hadOriginal = true;
+      }
+      renameSync(snapshot.temp, snapshot.target);
+      snapshot.replaced = true;
+    }
     return stations;
+  } catch (error) {
+    const rollbackErrors = [];
+    for (const snapshot of [...snapshots].reverse()) {
+      try {
+        if (snapshot.replaced && fs.existsSync(snapshot.target)) fs.rmSync(snapshot.target, { force: true });
+        if (snapshot.hadOriginal && fs.existsSync(snapshot.backup)) renameSync(snapshot.backup, snapshot.target);
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError.message);
+      }
+    }
+    if (rollbackErrors.length) {
+      rollbackFailed = true;
+      throw new Error(`MTR snapshot replacement failed: ${error.message}; rollback failed: ${rollbackErrors.join('; ')}`);
+    }
+    throw new Error(`MTR snapshot replacement failed and existing snapshots were restored: ${error.message}`);
   } finally {
-    fs.rmSync(csvTemp, { force: true });
-    fs.rmSync(jsonTemp, { force: true });
+    for (const snapshot of snapshots) {
+      fs.rmSync(snapshot.temp, { force: true });
+      if (!rollbackFailed) fs.rmSync(snapshot.backup, { force: true });
+    }
   }
 }
 
