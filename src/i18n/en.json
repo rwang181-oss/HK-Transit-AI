@@ -13,6 +13,8 @@
     "title": "Routes",
     "placeholder": "Enter route, e.g. 1A",
     "noResults": "No routes found",
+    "partialData": "Some providers are temporarily unavailable. Available routes are still shown.",
+    "providerUnavailable": "This transit provider is currently unavailable.",
     "direction": "Direction",
     "outbound": "Outbound",
     "inbound": "Inbound"
@@ -23,6 +25,8 @@
     "min": "min",
     "arriving": "Arriving",
     "noETA": "No live ETA available",
+    "unavailable": "Live ETA unavailable",
+    "loadError": "Could not load live ETA",
     "refreshingIn": "Refreshing in {{seconds}}s"
   },
   "nearby": {

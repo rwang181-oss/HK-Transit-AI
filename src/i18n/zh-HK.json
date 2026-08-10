@@ -13,6 +13,8 @@
     "title": "路線",
     "placeholder": "輸入路線，例如 1A",
     "noResults": "找不到相關路線",
+    "partialData": "部分營辦商暫時未能提供資料，仍會顯示可用路線。",
+    "providerUnavailable": "此交通營辦商暫時未能提供服務。",
     "direction": "方向",
     "outbound": "去程",
     "inbound": "回程"
@@ -23,6 +25,8 @@
     "min": "分鐘",
     "arriving": "即將到站",
     "noETA": "暫無實時到站資料",
+    "unavailable": "暫無實時到站資料",
+    "loadError": "未能載入實時到站資料",
     "refreshingIn": "{{seconds}} 秒後更新"
   },
   "nearby": {

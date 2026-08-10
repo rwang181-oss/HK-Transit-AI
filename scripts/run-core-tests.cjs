@@ -24,6 +24,7 @@ for (const testFile of [
   'tests/core/progressive-session.test.cjs',
   'tests/core/progressive-deps.test.cjs',
   'tests/core/route-catalog.test.cjs',
+  'tests/core/route-details.test.cjs',
 ]) {
   const tests = spawnSync(process.execPath, [testFile], { stdio: 'inherit' });
   if (tests.status !== 0) {
