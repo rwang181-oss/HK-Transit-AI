@@ -3,12 +3,15 @@ const path = require('node:path');
 const Module = require('node:module');
 
 let locationCallback = null;
+let grantPermission = null;
 const originalLoad = Module._load;
 Module._load = function loadForNavigationStore(request, parent, isMain) {
   if (request === 'expo-location') {
     return {
       Accuracy: { Balanced: 1 },
-      requestForegroundPermissionsAsync: async () => ({ status: 'granted' }),
+      requestForegroundPermissionsAsync: () => new Promise((resolve) => {
+        grantPermission = () => resolve({ status: 'granted' });
+      }),
       watchPositionAsync: async (_options, callback) => {
         locationCallback = callback;
         return { remove() {} };
@@ -85,7 +88,14 @@ function gps(lat, lng, timestamp) {
 
 (async () => {
   try {
-    await useNavigationStore.getState().start(option, destination);
+    const starting = useNavigationStore.getState().start(option, destination);
+    assert.equal(useNavigationStore.getState().option, option,
+      'the selected option must be visible while location permission is pending');
+    assert.equal(useNavigationStore.getState().phase, 'walkingToTransit',
+      'the planned walking stage must be visible while location permission is pending');
+    assert.ok(grantPermission, 'location permission should have been requested');
+    grantPermission();
+    await starting;
     assert.equal(useNavigationStore.getState().phaseStartedAtMs, startMs);
 
     gps(22.3, 114.1, startMs + 60_000);

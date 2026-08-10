@@ -37,6 +37,7 @@
     "src/journey/realtime/navigationTiming.ts",
     "src/journey/realtime/navigationProgress.ts",
     "src/journey/realtime/liveRouteController.ts",
+    "src/journey/realtime/navigationMapModel.ts",
     "src/stores/navigationStore.ts",
     "src/journey/providers/routeDisplay.ts",
     "src/journey/search/routeCatalog.ts",

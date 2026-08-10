@@ -236,8 +236,11 @@ export default function JourneyResultScreen() {
     selectOption(option);
     setNavigationVisible(true);
     setStartingNavigation(true);
-    await startNavigation(option, toPoint);
-    setStartingNavigation(false);
+    try {
+      await startNavigation(option, toPoint);
+    } finally {
+      setStartingNavigation(false);
+    }
   };
 
   const mapPoints = selected

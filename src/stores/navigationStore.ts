@@ -210,41 +210,41 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
   start: async (option, destination) => {
     subscription?.remove();
     subscription = null;
+    const phase: NavigationPhase = 'walkingToTransit';
+    const activeLegIndex = 0;
+    const phaseStartedAtMs = Date.now();
+    const speed = createWalkingSpeedState();
+    const timing = calculateLiveTiming(
+      phase,
+      activeLegIndex,
+      phaseStartedAtMs,
+      option,
+      destination,
+      null,
+      speed,
+      phaseStartedAtMs
+    );
+    set({
+      phase,
+      activeLegIndex,
+      phaseStartedAtMs,
+      option,
+      destination,
+      currentPosition: null,
+      speed,
+      liveArrival: timing.arrival,
+      liveWaitMinutes: timing.waitMinutes,
+      liveCatchable: timing.catchable,
+      liveDepartureStatus: timing.departureStatus,
+      error: null,
+    });
+
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
       if (permission.status !== 'granted') {
         set({ error: 'locationPermissionDenied' });
         return;
       }
-
-      const phase: NavigationPhase = 'walkingToTransit';
-      const activeLegIndex = 0;
-      const phaseStartedAtMs = Date.now();
-      const speed = createWalkingSpeedState();
-      const timing = calculateLiveTiming(
-        phase,
-        activeLegIndex,
-        phaseStartedAtMs,
-        option,
-        destination,
-        null,
-        speed,
-        phaseStartedAtMs
-      );
-      set({
-        phase,
-        activeLegIndex,
-        phaseStartedAtMs,
-        option,
-        destination,
-        currentPosition: null,
-        speed,
-        liveArrival: timing.arrival,
-        liveWaitMinutes: timing.waitMinutes,
-        liveCatchable: timing.catchable,
-        liveDepartureStatus: timing.departureStatus,
-        error: null,
-      });
 
       subscription = await Location.watchPositionAsync(
         {

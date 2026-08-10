@@ -31,6 +31,8 @@ interface TransitMapProps {
   paths?: MapPath[];
   height?: number;
   onPickPoint?: (point: { lat: number; lng: number }) => void;
+  followPoint?: { lat: number; lng: number } | null;
+  followZoom?: number;
 }
 
 function pointColor(kind: MapPoint['kind']): string {
@@ -60,6 +62,8 @@ export function TransitMap({
   paths = [],
   height = 240,
   onPickPoint,
+  followPoint = null,
+  followZoom,
 }: TransitMapProps) {
   const { t } = useTranslation();
   const containerRef = useRef<View>(null);
@@ -69,6 +73,7 @@ export function TransitMap({
   const pickHandlerRef = useRef(onPickPoint);
   const [loading, setLoading] = useState(Platform.OS === 'web');
   const [mapError, setMapError] = useState(false);
+  const [following, setFollowing] = useState(true);
   pickHandlerRef.current = onPickPoint;
 
   useEffect(() => {
@@ -111,11 +116,12 @@ export function TransitMap({
         map.on('click', (event: any) => {
           pickHandlerRef.current?.({ lat: event.latlng.lat, lng: event.latlng.lng });
         });
+        map.on('dragstart', () => setFollowing(false));
         map.whenReady(() => {
           if (!disposed) setLoading(false);
         });
         mapRef.current = map;
-        renderLayers(map, L, points, paths);
+        renderLayers(map, L, points, paths, !followPoint);
         requestAnimationFrame(() => map.invalidateSize(false));
 
         if (typeof ResizeObserver !== 'undefined') {
@@ -145,16 +151,43 @@ export function TransitMap({
     const map = mapRef.current;
     const L = leafletRef.current;
     if (!map || !L) return;
-    renderLayers(map, L, points, paths);
-  }, [points, paths]);
+    renderLayers(map, L, points, paths, !followPoint);
+  }, [points, paths, followPoint]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || followPoint) return;
     map.setView([center.lat, center.lng], map.getZoom(), { animate: false });
-  }, [center.lat, center.lng]);
+  }, [center.lat, center.lng, followPoint]);
 
-  function renderLayers(map: any, L: any, mapPoints: MapPoint[], mapPaths: MapPath[]) {
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !following || !followPoint) return;
+    map.setView(
+      [followPoint.lat, followPoint.lng],
+      followZoom ?? Math.max(map.getZoom(), 16),
+      { animate: false }
+    );
+  }, [following, followPoint?.lat, followPoint?.lng, followZoom]);
+
+  const recenter = () => {
+    setFollowing(true);
+    const map = mapRef.current;
+    if (!map || !followPoint) return;
+    map.setView(
+      [followPoint.lat, followPoint.lng],
+      followZoom ?? Math.max(map.getZoom(), 16),
+      { animate: false }
+    );
+  };
+
+  function renderLayers(
+    map: any,
+    L: any,
+    mapPoints: MapPoint[],
+    mapPaths: MapPath[],
+    shouldFitBounds: boolean
+  ) {
     if (layerRef.current) map.removeLayer(layerRef.current);
     const layer = L.layerGroup();
     const bounds: Array<[number, number]> = [];
@@ -190,7 +223,7 @@ export function TransitMap({
 
     layer.addTo(map);
     layerRef.current = layer;
-    if (bounds.length > 1) {
+    if (shouldFitBounds && bounds.length > 1) {
       map.fitBounds(bounds, { padding: [24, 24], maxZoom: 16, animate: false });
     }
   }
@@ -231,6 +264,16 @@ export function TransitMap({
           <Text style={styles.errorText}>{t('journey.mapUnavailable')}</Text>
         </View>
       ) : null}
+      {!following && followPoint && !mapError ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('navigation.recenter')}
+          onPress={recenter}
+          style={styles.recenterButton}
+        >
+          <Text style={styles.recenterText}>{t('navigation.recenter')}</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -263,6 +306,24 @@ const styles = StyleSheet.create({
   },
   loadingText: { color: COLORS.textSecondary, fontSize: 12, fontWeight: '600' },
   errorText: { color: COLORS.textSecondary, fontSize: 12, fontWeight: '600' },
+  recenterButton: {
+    position: 'absolute',
+    right: 12,
+    bottom: 12,
+    minHeight: 40,
+    borderRadius: 20,
+    paddingHorizontal: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    shadowColor: '#000000',
+    shadowOpacity: 0.16,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  recenterText: { color: COLORS.textPrimary, fontSize: 12, fontWeight: '700' },
   nativeCard: {
     width: '100%',
     borderRadius: 18,
