@@ -9,6 +9,7 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
+const { writeMtrStationsSnapshot } = require('./mtr-stations.cjs');
 
 const OUT_DIR = path.join(__dirname, '..', 'src', 'data');
 const CONCURRENCY = 8;
@@ -233,7 +234,9 @@ async function crawlMtr() {
   if (!response.ok) throw new Error(`MTR CSV ${response.status}`);
   const csv = await response.text();
   fs.writeFileSync(path.join(OUT_DIR, 'mtr_stations.csv'), csv);
+  const stations = writeMtrStationsSnapshot(OUT_DIR, csv);
   console.log(`MTR CSV saved: ${csv.trim().split('\n').length - 1} rows`);
+  console.log(`MTR station snapshot: ${stations.length} rows`);
 }
 
 async function main() {

@@ -26,7 +26,10 @@ The script writes:
 
 - `src/data/ctb.json`
 - `src/data/gmb.json`
-- `src/data/mtr_stations.csv`
+- `src/data/mtr_stations.csv` (raw official download)
+- `src/data/mtr_stations.json` (converted station rows consumed by `npm run build:journey-index`)
+
+The MTR CSV download and JSON conversion happen in the same refresh command, so the generated journey index uses the refreshed MTR station data rather than a stale JSON snapshot.
 
 ## Expected GMB schema
 
