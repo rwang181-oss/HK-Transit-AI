@@ -4,6 +4,7 @@
     "module": "CommonJS",
     "moduleResolution": "Node",
     "strict": true,
+    "ignoreDeprecations": "5.0",
     "esModuleInterop": true,
     "skipLibCheck": true,
     "rootDir": "src",
@@ -38,6 +39,7 @@
     "src/journey/search/routeDetails.ts",
     "src/utils/requestCache.ts",
     "src/utils/asyncPool.ts",
-    "src/utils/versionMonitor.ts"
+    "src/utils/versionMonitor.ts",
+    "src/utils/languageSwitch.ts"
   ]
 }
