@@ -19,6 +19,7 @@
     }
   },
   "include": [
+    "src/components/transitMapInitialization.ts",
     "src/journey/providers/types.ts",
     "src/journey/model/types.ts",
     "src/journey/data/kmbTopology.ts",

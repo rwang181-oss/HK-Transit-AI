@@ -52,6 +52,7 @@ interface LiveTiming {
 }
 
 let subscription: Location.LocationSubscription | null = null;
+let navigationGeneration = 0;
 const TRANSFER_HEADWAY_MINUTES: Record<string, number> = {
   KMB: 8,
   CTB: 8,
@@ -210,6 +211,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
   start: async (option, destination) => {
     subscription?.remove();
     subscription = null;
+    const generation = ++navigationGeneration;
     const phase: NavigationPhase = 'walkingToTransit';
     const activeLegIndex = 0;
     const phaseStartedAtMs = Date.now();
@@ -241,18 +243,20 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
 
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
+      if (generation !== navigationGeneration) return;
       if (permission.status !== 'granted') {
         set({ error: 'locationPermissionDenied' });
         return;
       }
 
-      subscription = await Location.watchPositionAsync(
+      const nextSubscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.Balanced,
           timeInterval: 5_000,
           distanceInterval: 5,
         },
         (location) => {
+          if (generation !== navigationGeneration) return;
           const position = {
             lat: location.coords.latitude,
             lng: location.coords.longitude,
@@ -333,7 +337,13 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
           });
         }
       );
+      if (generation !== navigationGeneration) {
+        nextSubscription.remove();
+        return;
+      }
+      subscription = nextSubscription;
     } catch {
+      if (generation !== navigationGeneration) return;
       subscription?.remove();
       subscription = null;
       set({ error: 'locationTrackingFailed' });
@@ -341,6 +351,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
   },
 
   stop: () => {
+    navigationGeneration += 1;
     subscription?.remove();
     subscription = null;
     set({

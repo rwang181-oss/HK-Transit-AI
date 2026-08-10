@@ -33,6 +33,7 @@ export function NavigationModal({ visible, starting, onClose }: NavigationModalP
     phase,
     activeLegIndex,
     currentPosition,
+    error,
   } = useNavigationStore();
   const [liveRoute, setLiveRoute] = useState<WalkingRoute | null>(null);
   const controllerRef = useRef<ReturnType<typeof createLiveRouteController> | null>(null);
@@ -120,7 +121,7 @@ export function NavigationModal({ visible, starting, onClose }: NavigationModalP
           </Pressable>
         </View>
         <ScrollView contentContainerStyle={styles.content}>
-          {visible && mapModel.center ? (
+          {visible && target && mapModel.center ? (
             <View style={styles.mapCard}>
               <TransitMap
                 center={mapModel.center}
@@ -138,7 +139,11 @@ export function NavigationModal({ visible, starting, onClose }: NavigationModalP
                   </Text>
                 </View>
                 <View style={styles.routeStatus}>
-                  {!currentPosition ? (
+                  {error ? (
+                    <Text style={[styles.routeStatusText, styles.locationErrorStatus]}>
+                      {t(`navigation.errors.${error}`)}
+                    </Text>
+                  ) : !currentPosition ? (
                     <>
                       <ActivityIndicator size="small" color={COLORS.hkRed} />
                       <Text style={styles.routeStatusText}>{t('navigation.locating')}</Text>
@@ -162,7 +167,7 @@ export function NavigationModal({ visible, starting, onClose }: NavigationModalP
               <Text style={styles.unavailableText}>{t('navigation.targetUnavailable')}</Text>
             </View>
           ) : null}
-          {starting ? (
+          {starting && !error ? (
             <View style={styles.startingCard}>
               <ActivityIndicator size="small" color={COLORS.hkRed} />
               <View style={styles.startingTextBlock}>
@@ -202,6 +207,7 @@ const styles = StyleSheet.create({
   routeStatus: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 7, maxWidth: '48%' },
   routeStatusText: { color: '#176B4D', fontSize: 11, lineHeight: 15, fontWeight: '700', textAlign: 'right' },
   estimatedStatus: { color: '#9A6700' },
+  locationErrorStatus: { color: '#B42318' },
   unavailableCard: { minHeight: 84, borderRadius: 16, backgroundColor: COLORS.bgCard, borderWidth: 1, borderColor: COLORS.border, justifyContent: 'center', paddingHorizontal: 18 },
   unavailableText: { color: COLORS.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 5 },
   startingCard: { minHeight: 72, borderRadius: 16, backgroundColor: COLORS.bgCard, borderWidth: 1, borderColor: COLORS.border, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, gap: 14 },
