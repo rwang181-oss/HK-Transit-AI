@@ -38,3 +38,34 @@ Result: exit 2 because of two pre-existing, out-of-scope errors: `app/journey/ma
 - Confirmed the search tab no longer imports the KMB route store and the new detail screen does not import or write the favourites store.
 - Confirmed `git diff --check` is clean.
 - Concern: full structural verification cannot be claimed green until the two existing non-Task-2 type errors are resolved. No unrelated files were changed.
+
+## Fix Round 1: Direction-scoped ETA state
+
+### Changes
+
+- Added `filterStopEtaByBound`, used by `app/route-detail.tsx` before storing ETA responses so arrivals for the opposite bound never render.
+- Added `getRouteStopStateKey`, and keyed expanded state, ETA cache, and ETA errors by provider, route, bound, and stop ID. A reused stop ID therefore cannot retain an expanded or cached ETA state when navigation parameters change.
+- Extended `tests/core/route-details.test.cjs` with literal outbound and inbound ETA fixtures. The test asserts only the selected outbound ETA remains and that two provider/route/bound contexts for the same stop produce different state keys.
+
+### RED evidence
+
+Command: `node ./node_modules/typescript/bin/tsc -p tsconfig.core.json; node tests/core/route-details.test.cjs`
+
+Result: exit 1, as expected. The test failed with `TypeError: details.filterStopEtaByBound is not a function` before the new filtering helper existed.
+
+### GREEN evidence
+
+Command: `node ./node_modules/typescript/bin/tsc -p tsconfig.core.json; node tests/core/route-details.test.cjs`
+
+Result: exit 0, `route-details.test.cjs: PASS`.
+
+Command: `npm run test:core`
+
+Result: exit 0. All core suites passed, including `route-catalog.test.cjs: PASS` and `route-details.test.cjs: PASS`.
+
+### Files changed
+
+- `src/journey/search/routeDetails.ts`
+- `app/route-detail.tsx`
+- `tests/core/route-details.test.cjs`
+- `.superpowers/sdd/2026-08-10-live-map-multimodal-search/task-2-report.md`

@@ -1,4 +1,4 @@
-import type { ETA, RouteStopLink, Stop, TransitProvider } from '../providers/types';
+import type { ETA, ProviderId, RouteStopLink, Stop, TransitProvider } from '../providers/types';
 
 export interface RouteDirectionStop {
   link: RouteStopLink;
@@ -30,4 +30,17 @@ export async function loadStopEta(
   route: string
 ): Promise<ETA[]> {
   return provider.fetchETA(stopId, route);
+}
+
+export function filterStopEtaByBound(etas: ETA[], bound: 'O' | 'I'): ETA[] {
+  return etas.filter((eta) => eta.bound === bound);
+}
+
+export function getRouteStopStateKey(
+  provider: ProviderId,
+  route: string,
+  bound: 'O' | 'I',
+  stopId: string
+): string {
+  return `${provider}:${route}:${bound}:${stopId}`;
 }

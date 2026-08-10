@@ -7,6 +7,8 @@ import type { ETA, ProviderId } from '@/src/journey/providers/types';
 import {
   loadRouteDirection,
   loadStopEta,
+  filterStopEtaByBound,
+  getRouteStopStateKey,
   type RouteDirectionStop,
 } from '@/src/journey/search/routeDetails';
 import { COLORS } from '@/src/utils/constants';
@@ -34,7 +36,7 @@ export default function RouteDetailScreen() {
   const bound = boundParam === 'I' ? 'I' : boundParam === 'O' ? 'O' : undefined;
   const isEN = i18n.language === 'en';
   const [stops, setStops] = useState<RouteDirectionStop[]>([]);
-  const [expandedStopId, setExpandedStopId] = useState<string | null>(null);
+  const [expandedStopKey, setExpandedStopKey] = useState<string | null>(null);
   const [etas, setEtas] = useState<Record<string, ETA[]>>({});
   const [etaErrors, setEtaErrors] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
@@ -65,19 +67,21 @@ export default function RouteDetailScreen() {
   }, [provider, routeCode, bound]);
 
   const toggleStop = async (stopId: string) => {
-    if (expandedStopId === stopId) {
-      setExpandedStopId(null);
+    if (!isProviderId(provider) || !routeCode || !bound) return;
+    const stopKey = getRouteStopStateKey(provider, routeCode, bound, stopId);
+    if (expandedStopKey === stopKey) {
+      setExpandedStopKey(null);
       return;
     }
-    setExpandedStopId(stopId);
-    if (!isProviderId(provider) || !routeCode || etas[stopId]) return;
+    setExpandedStopKey(stopKey);
+    if (etas[stopKey]) return;
 
     try {
       const transitProvider = await getProvider(provider);
       const rows = await loadStopEta(transitProvider, stopId, routeCode);
-      setEtas((current) => ({ ...current, [stopId]: rows }));
+      setEtas((current) => ({ ...current, [stopKey]: filterStopEtaByBound(rows, bound) }));
     } catch {
-      setEtaErrors((current) => ({ ...current, [stopId]: true }));
+      setEtaErrors((current) => ({ ...current, [stopKey]: true }));
     }
   };
 
@@ -91,8 +95,11 @@ export default function RouteDetailScreen() {
       ) : (
         <ScrollView style={styles.list}>
           {stops.map(({ link, stop }) => {
-            const expanded = expandedStopId === stop.stopId;
-            const stopEtas = etas[stop.stopId];
+            const stopKey = isProviderId(provider) && routeCode && bound
+              ? getRouteStopStateKey(provider, routeCode, bound, stop.stopId)
+              : stop.stopId;
+            const expanded = expandedStopKey === stopKey;
+            const stopEtas = etas[stopKey];
             const stopName = isEN ? stop.name_en : stop.name_tc;
             return (
               <Pressable key={`${link.stopId}-${link.seq}`} style={styles.stopRow} onPress={() => void toggleStop(stop.stopId)}>
@@ -102,7 +109,7 @@ export default function RouteDetailScreen() {
                 </View>
                 {expanded && (
                   <View style={styles.etaPanel}>
-                    {etaErrors[stop.stopId] ? (
+                    {etaErrors[stopKey] ? (
                       <Text style={styles.etaError}>{t('eta.loadError')}</Text>
                     ) : !stopEtas ? (
                       <Text style={styles.etaText}>{t('home.loading')}</Text>

@@ -18,5 +18,17 @@ const provider = {
   const rows = await details.loadRouteDirection(provider, '1', 'O');
   assert.deepEqual(rows.map((row) => row.stop.stopId), ['a', 'b']);
   assert.deepEqual(await details.loadStopEta(provider, 'a', '1'), []);
+  const departures = [
+    { route: '1', bound: 'O', stopId: 'a', eta: '2026-08-10T09:00:00.000Z', provider: 'CTB' },
+    { route: '1', bound: 'I', stopId: 'a', eta: '2026-08-10T09:05:00.000Z', provider: 'CTB' },
+  ];
+  assert.deepEqual(
+    details.filterStopEtaByBound(departures, 'O').map((eta) => eta.eta),
+    ['2026-08-10T09:00:00.000Z']
+  );
+  assert.notEqual(
+    details.getRouteStopStateKey('CTB', '1', 'O', 'a'),
+    details.getRouteStopStateKey('MTR', '1', 'I', 'a')
+  );
   console.log('route-details.test.cjs: PASS');
 })().catch((error) => { console.error(error); process.exit(1); });
