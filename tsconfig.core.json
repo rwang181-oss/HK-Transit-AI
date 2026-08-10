@@ -34,6 +34,7 @@
     "src/journey/realtime/departureSelector.ts",
     "src/journey/realtime/navigationTiming.ts",
     "src/journey/providers/routeDisplay.ts",
+    "src/journey/search/routeCatalog.ts",
     "src/utils/requestCache.ts",
     "src/utils/asyncPool.ts",
     "src/utils/versionMonitor.ts"
