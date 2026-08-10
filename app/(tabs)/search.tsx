@@ -38,6 +38,9 @@ export default function SearchScreen() {
   return (
     <View style={styles.container}>
       <SearchBar value={query} onChangeText={setQuery} />
+      {loaded && Object.keys(errors).length > 0 && (
+        <Text style={styles.partialWarning}>{t('search.partialData')}</Text>
+      )}
       {!loaded ? (
         <View style={styles.center}>
           <Text style={styles.emptyText}>{t('home.loading')}</Text>
@@ -48,9 +51,6 @@ export default function SearchScreen() {
         </View>
       ) : (
         <ScrollView style={styles.list}>
-          {Object.keys(errors).length > 0 && (
-            <Text style={styles.partialWarning}>{t('search.partialData')}</Text>
-          )}
           {filteredRoutes.map((item, i) => {
             const dest = isEN ? item.dest_en : item.dest_tc;
             const orig = isEN ? item.orig_en : item.orig_tc;

@@ -45,16 +45,25 @@ function makeNetwork() {
   return buildGraph(stops, links);
 }
 
+function hubIdForStop(graph: ReturnType<typeof makeNetwork>, stopId: string): string {
+  const hub = graph.hubs.find((candidate) =>
+    candidate.members.some((member) => member.provider === 'KMB' && member.stopId === stopId)
+  );
+  if (!hub) throw new Error(`Missing fixture hub for stop ${stopId}`);
+  return hub.id;
+}
+
 describe('planJourney', () => {
   it('returns null when destination unreachable', () => {
     const g = makeNetwork();
-    const r = planJourney(g, 'hub-0', 'hub-0'); // same hub
+    const a = hubIdForStop(g, 'A');
+    const r = planJourney(g, a, a); // same hub
     expect(r).toBeNull();
   });
 
   it('finds a direct route', () => {
     const g = makeNetwork();
-    const r = planJourney(g, 'hub-0', 'hub-2'); // A → C on route 8
+    const r = planJourney(g, hubIdForStop(g, 'A'), hubIdForStop(g, 'C')); // A → C on route 8
     expect(r).not.toBeNull();
     expect(r!.isDirect).toBe(true);
     expect(r!.totalMinutes).toBeGreaterThan(0);
@@ -62,7 +71,7 @@ describe('planJourney', () => {
 
   it('finds a transfer route A → E via C', () => {
     const g = makeNetwork();
-    const r = planJourney(g, 'hub-0', 'hub-4');
+    const r = planJourney(g, hubIdForStop(g, 'A'), hubIdForStop(g, 'E'));
     expect(r).not.toBeNull();
     expect(r!.transfers).toBe(1);
     expect(r!.isDirect).toBe(false);
@@ -75,7 +84,7 @@ describe('planJourney', () => {
 
   it('merges consecutive legs on the same route', () => {
     const g = makeNetwork();
-    const r = planJourney(g, 'hub-0', 'hub-2'); // A→C is B + C on route 8
+    const r = planJourney(g, hubIdForStop(g, 'A'), hubIdForStop(g, 'C')); // A→C is B + C on route 8
     const rides = r!.legs.filter((l) => l.kind === 'ride');
     expect(rides).toHaveLength(1); // merged, not two legs
   });

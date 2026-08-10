@@ -609,7 +609,7 @@ export const useJourneyStore = create<JourneyState>((set, get) => ({
     return [...stationHits, ...placeHits].slice(0, 10);
   },
 
-  plan: async (from, to, weather = DEFAULT_WEATHER, policy = 'recommended') => {
+  plan: async (from, to, weather = DEFAULT_WEATHER, policy: JourneyPolicy = 'recommended') => {
     const graph = get().graph;
     if (!graph || !hasCoordinates(from) || !hasCoordinates(to)) return [];
     const boardHubs = selectRouteAwareHubs(get().hubs, from, graph, MAX_WALK_TO_STATION_M, MAX_ROUTE_AWARE_HUBS);

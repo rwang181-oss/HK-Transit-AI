@@ -1,16 +1,12 @@
-import {
-  fetchAllRoutes,
-  fetchAllStops,
-  fetchRouteStops,
-  fetchETA,
-} from '../kmbAPI';
-
 const mockFetch = jest.fn();
-global.fetch = mockFetch as unknown as typeof fetch;
+let api: typeof import('../kmbAPI');
 
 describe('kmbAPI', () => {
   beforeEach(() => {
+    jest.resetModules();
     mockFetch.mockReset();
+    global.fetch = mockFetch as unknown as typeof fetch;
+    api = require('../kmbAPI');
   });
 
   describe('fetchAllRoutes', () => {
@@ -23,10 +19,15 @@ describe('kmbAPI', () => {
         json: () => Promise.resolve({ data: mockRoutes }),
       });
 
-      const result = await fetchAllRoutes();
+      const result = await api.fetchAllRoutes();
       expect(result).toEqual(mockRoutes);
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://data.etabus.gov.hk/v1/transport/kmb/route/'
+        'https://data.etabus.gov.hk/v1/transport/kmb/route/',
+        expect.objectContaining({
+          cache: 'default',
+          headers: { Accept: 'application/json' },
+          signal: expect.any(AbortSignal),
+        })
       );
     });
 
@@ -36,27 +37,28 @@ describe('kmbAPI', () => {
         status: 500,
         statusText: 'Server Error',
       });
-      await expect(fetchAllRoutes()).rejects.toThrow('API error: 500');
+      await expect(api.fetchAllRoutes()).rejects.toThrow('API error: 500');
     });
 
     it('throws on network failure', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Network error'));
-      await expect(fetchAllRoutes()).rejects.toThrow('Network error');
+      await expect(api.fetchAllRoutes()).rejects.toThrow('Network error');
     });
   });
 
-  describe('fetchAllStops', () => {
-    it('fetches and returns stop data', async () => {
-      const mockStops = [
-        { stop: 'ABC123', name_en: 'PolyU', lat: 22.3, long: 114.17 },
+  describe('request cache', () => {
+    it('reuses a successful route response within the cache lifetime', async () => {
+      const mockRoutes = [
+        { route: '1A', orig_en: 'Star Ferry', dest_en: 'Kwun Tong' },
       ];
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ data: mockStops }),
+        json: () => Promise.resolve({ data: mockRoutes }),
       });
 
-      const result = await fetchAllStops();
-      expect(result).toEqual(mockStops);
+      await expect(api.fetchAllRoutes()).resolves.toEqual(mockRoutes);
+      await expect(api.fetchAllRoutes()).resolves.toEqual(mockRoutes);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -70,10 +72,15 @@ describe('kmbAPI', () => {
         json: () => Promise.resolve({ data: mockRouteStops }),
       });
 
-      const result = await fetchRouteStops('1A', 'O');
+      const result = await api.fetchRouteStops('1A', 'O');
       expect(result).toEqual(mockRouteStops);
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://data.etabus.gov.hk/v1/transport/kmb/route-stop/1A/outbound/1'
+        'https://data.etabus.gov.hk/v1/transport/kmb/route-stop/1A/outbound/1',
+        expect.objectContaining({
+          cache: 'default',
+          headers: { Accept: 'application/json' },
+          signal: expect.any(AbortSignal),
+        })
       );
     });
   });
@@ -101,10 +108,15 @@ describe('kmbAPI', () => {
         json: () => Promise.resolve({ data: mockETA }),
       });
 
-      const result = await fetchETA('ABC123', '1A');
+      const result = await api.fetchETA('ABC123', '1A');
       expect(result).toEqual(mockETA);
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://data.etabus.gov.hk/v1/transport/kmb/eta/ABC123/1A/1'
+        'https://data.etabus.gov.hk/v1/transport/kmb/eta/ABC123/1A/1',
+        expect.objectContaining({
+          cache: 'default',
+          headers: { Accept: 'application/json' },
+          signal: expect.any(AbortSignal),
+        })
       );
     });
   });

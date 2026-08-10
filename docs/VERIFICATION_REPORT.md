@@ -1,56 +1,67 @@
 # Verification Report
 
-Prepared: 2026-08-06
+Prepared: 2026-08-10
 
-## Checks completed in the preparation environment
+## Environment
 
-The following commands were run against the handoff source tree:
+- Windows PowerShell
+- Node.js `v24.18.0`
+- npm `11.17.0`
+- Source checkpoint before Task 8 corrections: `f60276eb00ab434a9c95e6866d587bfe6ea239bf`
 
-```bash
-npm run test:core
-npm run verify:types
-npm run verify:source
-npm run verify:handoff
+## Dependency installation
+
+```powershell
+npm ci
+```
+
+Exit code: `0`. The lockfile installation completed with 916 packages. npm's audit summary reported 21 transitive findings (7 moderate and 14 high); no automatic or breaking dependency upgrade was applied during this scoped verification task. `react-native-web` is declared as `~0.21.0`, matching the Expo 57 bundled-module range, and is installed from the lockfile.
+
+## Automated verification
+
+```powershell
 npm run verify
 ```
 
-Recorded result before packaging:
+Exit code: `0`.
 
-- 22 dependency-free core behavioural tests passed.
-- Offline structural TypeScript checking passed using `tsconfig.verify.json` and local module stubs.
-- TS/TSX parsing, JSON parsing and JavaScript syntax checks passed.
-- Handoff structure validation passed.
-- The handoff verifier correctly emitted the expected warning that the bundled GMB snapshot is legacy.
+- Journey-index generation and validation passed: 8,769 hubs, 3,189 routes and 483 cells.
+- Provider route coverage passed: KMB 1,317, CTB 688, GMB 1,160 and MTR 24.
+- All dependency-free core suites passed, including the Node 24/Windows type-wrapper regression and the default 25-metre live-reroute threshold regression.
+- Full Expo TypeScript checking, source parsing and translation-key parity, mobile UX contracts, and handoff validation passed.
 
-The core suite covers comfort-mode selection/ranking, transparent comfort metrics, GPS speed filtering/smoothing, dynamic ETA calculation, geo-aware stable stop merging, reachable/missed departure selection, decreasing live wait/ride clocks, GMB public route display and multiple GMB ETA response shapes.
-
-## Full dependency/build limitation
-
-A full dependency installation was attempted with the public npm registry:
-
-```bash
-npm ci --registry=https://registry.npmjs.org --ignore-scripts --no-audit --no-fund
-```
-
-The command timed out in the preparation environment and did not leave a usable `node_modules` directory. The full Expo TypeScript environment, Jest suite and web export therefore could not be verified here.
-
-The receiving agent must run, with normal internet access:
-
-```bash
-npm install
-npm run data:refresh
-npm run verify
+```powershell
 npm test
+```
+
+Exit code: `0`. Jest reported 9 passed suites, 45 passed tests, 0 failures and 0 snapshots.
+
+```powershell
 npm run build:web
 ```
 
-No claim is made that the Expo web export or an iOS binary has already passed.
+Exit code: `0`. Expo bundled 894 modules, exported `dist`, and the post-build step created `.nojekyll`, `version.json`, and the SPA `404.html` fallback.
 
-## Mandatory deployment gate
+Additional focused evidence:
 
-Do not publish the included legacy GMB snapshot. Refresh it first and confirm:
+```powershell
+node .\node_modules\typescript\bin\tsc -p tsconfig.verify.json --noEmit --pretty false
+git diff --check
+```
 
-- `src/data/gmb.json` reports `schemaVersion: 2`.
-- Route-stop rows contain `sourceRouteId`, `routeSeq` and `stopSeq`.
-- GMB route variation keys remain unique internally.
-- Passenger-facing screens display clean route numbers without internal suffixes.
+Both commands exited `0`. The offline structural check covers the local React type stubs and the explicitly typed `JourneyPolicy` default.
+
+## Corrected verification debt
+
+- `scripts/verify-types.cjs` now invokes the installed TypeScript JavaScript entry point through Node instead of spawning `npx.cmd`, which Node 24 rejects with `EINVAL` on Windows.
+- The offline React stub includes `useCallback`, and the journey-store plan default is explicitly typed as `JourneyPolicy`.
+- Legacy Jest fixtures now resolve stable hashed hub IDs from stop membership, isolate the KMB request cache per test, assert current request options, and test the bundled-topology-era cache contract.
+- The search screen keeps the partial-provider warning visible beside the no-results state.
+- The live-route regression now exercises the default 25-metre threshold rather than supplying the same value explicitly.
+- `react-native-web` was restored to `package.json` and synchronized with `package-lock.json`.
+
+## Acceptance status and boundaries
+
+Browser acceptance is pending. No phone-width (`390×844`) or desktop (`1440×900`) browser behaviour is claimed in this report; those checks are assigned to the Task 8 controller.
+
+The source audit confirms the home component renders `HK Transit`, translation-key parity passes, and the generated journey index contains all four required providers. This automated pass does not verify signed iOS builds, physical-device location behaviour, native MapKit behaviour, App Store signing, or submission readiness. The existing native/iOS boundary was not expanded.

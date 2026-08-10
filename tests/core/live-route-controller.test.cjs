@@ -54,15 +54,14 @@ test('requests routes only during walking phases', async () => {
   assert.equal(calls.length, 3);
 });
 
-test('reroutes only after approximately twenty-five metres of movement', async () => {
+test('uses the default twenty-five-metre reroute threshold', async () => {
   const calls = [];
   const controller = live.createLiveRouteController(
     async (from, to) => {
       calls.push({ from, to });
       return routedRoute();
     },
-    () => undefined,
-    { thresholdMeters: 25 }
+    () => undefined
   );
 
   controller.update({ phase: 'walkingToTransit', position: origin, target: targetA });

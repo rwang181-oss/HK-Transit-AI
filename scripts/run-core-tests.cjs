@@ -36,6 +36,7 @@ for (const testFile of [
   'tests/core/live-route-controller.test.cjs',
   'tests/core/navigation-map-model.test.cjs',
   'tests/core/transit-map-initialization.test.cjs',
+  'tests/core/verify-types.test.cjs',
 ]) {
   const tests = spawnSync(process.execPath, [testFile], { stdio: 'inherit' });
   if (tests.status !== 0) {
