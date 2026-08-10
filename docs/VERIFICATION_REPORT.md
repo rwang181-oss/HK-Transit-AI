@@ -60,10 +60,13 @@ Both commands exited `0`. The offline structural check covers the local React ty
 - The search screen keeps the partial-provider warning visible beside the no-results state.
 - The live-route regression now exercises the default 25-metre threshold rather than supplying the same value explicitly.
 - `react-native-web` was restored to `package.json` and synchronized with `package-lock.json`.
-- The web map now uses one authoritative follow flag for Leaflet drag/recenter events and recentres in the same update that renders a new GPS marker. A mocked-Leaflet regression covers drag-to-disable, immediate recenter, and a later followed GPS update at the requested zoom.
+- As defensive state-machine hardening, the web map now uses one authoritative follow flag for Leaflet drag/recenter events and recentres in the same update that renders a new GPS marker. A mocked-Leaflet behavior lock covers drag-to-disable, immediate recenter, and a later followed GPS update at the requested zoom; it does not establish that the prior implementation failed in a browser.
+- The web test waits for the observable Leaflet `dragstart` registration with a bounded timeout rather than assuming the dynamic loader completes in one event-loop turn.
 
 ## Acceptance status and boundaries
 
-Browser acceptance is pending. No phone-width (`390×844`) or desktop (`1440×900`) browser pass is claimed in this report; those checks are assigned to the Task 8 controller. The recenter-follow correction has automated coverage, but its real-browser recheck is still pending.
+The controller completed a targeted localhost recheck of the hardened recenter-follow behavior at `390×844` using synthetic geolocation. After dragging, the recenter control appeared; after clicking it, the control disappeared. A synthetic update from `22.2819,114.1588` to `22.2825,114.1594` left the control hidden and, after 1.8 seconds, the `341×360` map at `(17,85)` had viewport center `(187.5,265)` while the blue `18×18` marker at `(179,256)` had center `(188,265)`. The red route redrew and the status recalibrated.
+
+An earlier old-build observation based only on the marker's inline transform omitted the parent Leaflet pane transform, so it was inconclusive and is not treated as a valid RED or root-cause proof. The successful targeted recheck is synthetic localhost evidence only: it does not demonstrate real location transmission, native-device behavior, or complete phone/desktop browser acceptance. No desktop (`1440×900`) browser pass is claimed here.
 
 The source audit confirms the home component renders `HK Transit`, translation-key parity passes, and the generated journey index contains all four required providers. This automated pass does not verify signed iOS builds, physical-device location behaviour, native MapKit behaviour, App Store signing, or submission readiness. The existing native/iOS boundary was not expanded.

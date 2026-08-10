@@ -58,8 +58,14 @@ jest.mock('react-i18next', () => ({
 import { Pressable } from 'react-native';
 import { TransitMap } from '../TransitMap';
 
-function flushPromises() {
-  return new Promise((resolve) => setImmediate(resolve));
+async function waitForMapHandler(event: string, timeoutMs = 1000): Promise<void> {
+  const startedAt = Date.now();
+  while (!mapHandlers[event]) {
+    if (Date.now() - startedAt >= timeoutMs) {
+      throw new Error(`Timed out waiting for Leaflet ${event} handler`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 describe('TransitMap native destination safety', () => {
@@ -90,7 +96,10 @@ describe('TransitMap web GPS following', () => {
     mockPlatformOS = 'web';
     jest.clearAllMocks();
     for (const key of Object.keys(mapHandlers)) delete mapHandlers[key];
-    mockLoadLeaflet.mockResolvedValue(mockLeaflet);
+    mockLoadLeaflet.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return mockLeaflet;
+    });
   });
 
   it('recenter resumes following later GPS updates at the requested zoom', async () => {
@@ -99,7 +108,7 @@ describe('TransitMap web GPS following', () => {
     const moved = { lat: 22.2825, lng: 114.1594 };
     const target = { lat: 22.283, lng: 114.16, kind: 'stop' as const, label: 'Target' };
     let renderer: TestRenderer.ReactTestRenderer;
-    await act(async () => {
+    act(() => {
       renderer = TestRenderer.create(
         <TransitMap
           center={initial}
@@ -109,7 +118,9 @@ describe('TransitMap web GPS following', () => {
         />,
         { createNodeMock: () => ({}) }
       );
-      await flushPromises();
+    });
+    await act(async () => {
+      await waitForMapHandler('dragstart');
     });
 
     mockMap.setView.mockClear();
@@ -123,7 +134,6 @@ describe('TransitMap web GPS following', () => {
           followZoom={17}
         />
       );
-      await flushPromises();
     });
     expect(mockMap.setView).not.toHaveBeenCalled();
 
@@ -148,7 +158,6 @@ describe('TransitMap web GPS following', () => {
           followZoom={17}
         />
       );
-      await flushPromises();
     });
     expect(mockMap.setView).toHaveBeenCalledWith(
       [moved.lat, moved.lng],
