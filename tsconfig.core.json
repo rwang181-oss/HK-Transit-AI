@@ -34,6 +34,7 @@
     "src/journey/providers/gmbParser.ts",
     "src/journey/realtime/departureSelector.ts",
     "src/journey/realtime/navigationTiming.ts",
+    "src/journey/realtime/navigationProgress.ts",
     "src/journey/providers/routeDisplay.ts",
     "src/journey/search/routeCatalog.ts",
     "src/journey/search/routeDetails.ts",

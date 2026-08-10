@@ -73,6 +73,10 @@ export interface IndexedJourneyLeg {
   toHubId: string;
   fromName: string;
   toName: string;
+  fromLat: number;
+  fromLng: number;
+  toLat: number;
+  toLng: number;
   minutes: number;
   kind: 'ride' | 'transfer';
 }

@@ -8,6 +8,10 @@ export interface ItineraryLeg {
   toHubId: string;
   fromName: string;
   toName: string;
+  fromLat: number;
+  fromLng: number;
+  toLat: number;
+  toLng: number;
   minutes: number;
   kind: 'ride' | 'transfer';
 }
@@ -154,6 +158,10 @@ export function planJourney(
       toHubId: entry.edge.to,
       fromName: fromHub.name_en,
       toName: toHub.name_en,
+      fromLat: fromHub.lat,
+      fromLng: fromHub.lng,
+      toLat: toHub.lat,
+      toLng: toHub.lng,
       minutes: entry.edge.weight,
       kind: entry.edge.kind,
     });
@@ -172,6 +180,8 @@ export function planJourney(
     ) {
       last.toHubId = leg.toHubId;
       last.toName = leg.toName;
+      last.toLat = leg.toLat;
+      last.toLng = leg.toLng;
       last.minutes += leg.minutes;
     } else {
       merged.push({ ...leg });

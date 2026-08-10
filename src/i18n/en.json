@@ -159,6 +159,7 @@
     "nextStage": "Move to next stage",
     "foregroundOnly": "Live speed recalibration runs only while the app is open in this web/native MVP.",
     "phases": {
+      "walkingTransfer": "Walking to the transfer boarding point",
       "idle": "Not started",
       "walkingToTransit": "Walking to the boarding point",
       "waiting": "Waiting for the service",

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import * as Location from 'expo-location';
 import type { EtaStatus, JourneyOption, TripPoint } from '@/src/stores/journeyStore';
+import type { IndexedJourneyOption } from '@/src/journey/index/types';
 import {
   createWalkingSpeedState,
   estimateRemainingWalkMinutes,
@@ -14,19 +15,22 @@ import {
 } from '@/src/journey/realtime/navigationTiming';
 import { haversineMeters } from '@/src/journey/graph/travelTime';
 import type { JourneyArrivalWindow } from '@/src/journey/model/types';
+import {
+  advanceNavigationProgress,
+  resolveRemainingNavigationSegments,
+  resolveNavigationTarget,
+  type NavigationPhase,
+} from '@/src/journey/realtime/navigationProgress';
 
-export type NavigationPhase =
-  | 'idle'
-  | 'walkingToTransit'
-  | 'waiting'
-  | 'riding'
-  | 'walkingToDestination'
-  | 'arrived';
+export type { NavigationPhase } from '@/src/journey/realtime/navigationProgress';
+
+type NavigationJourneyOption = JourneyOption | IndexedJourneyOption;
 
 interface NavigationState {
   phase: NavigationPhase;
+  activeLegIndex: number;
   phaseStartedAtMs: number | null;
-  option: JourneyOption | null;
+  option: NavigationJourneyOption | null;
   destination: TripPoint | null;
   currentPosition: { lat: number; lng: number } | null;
   speed: WalkingSpeedState;
@@ -35,7 +39,7 @@ interface NavigationState {
   liveCatchable: boolean;
   liveDepartureStatus: EtaStatus;
   error: string | null;
-  start: (option: JourneyOption, destination: TripPoint) => Promise<void>;
+  start: (option: NavigationJourneyOption, destination: TripPoint) => Promise<void>;
   stop: () => void;
   advancePhase: () => void;
 }
@@ -48,42 +52,90 @@ interface LiveTiming {
 }
 
 let subscription: Location.LocationSubscription | null = null;
-
-function nextPhase(phase: NavigationPhase): NavigationPhase {
-  switch (phase) {
-    case 'walkingToTransit': return 'waiting';
-    case 'waiting': return 'riding';
-    case 'riding': return 'walkingToDestination';
-    case 'walkingToDestination': return 'arrived';
-    default: return phase;
-  }
-}
+const TRANSFER_HEADWAY_MINUTES: Record<string, number> = {
+  KMB: 8,
+  CTB: 8,
+  GMB: 10,
+  MTR: 4,
+};
 
 function calculateLiveTiming(
   phase: NavigationPhase,
+  activeLegIndex: number,
   phaseStartedAtMs: number,
-  option: JourneyOption,
+  option: NavigationJourneyOption,
   destination: TripPoint,
   position: { lat: number; lng: number } | null,
   speed: WalkingSpeedState,
   nowMs = Date.now()
 ): LiveTiming {
-  const toBoardMeters = position
-    ? haversineMeters(position.lat, position.lng, option.boardHub.lat, option.boardHub.lng)
-    : option.walkToStationMeters;
+  const segment = resolveRemainingNavigationSegments(
+    { phase, activeLegIndex },
+    option.itinerary.legs
+  );
+  const rideLegs = option.itinerary.legs.filter((leg) => leg.kind === 'ride');
+  const currentRide = rideLegs[activeLegIndex];
+  const previousRide = rideLegs[activeLegIndex - 1];
+  const transferCoordinatesAreValid = previousRide && currentRide &&
+    Number.isFinite(previousRide.toLat) && Number.isFinite(previousRide.toLng) &&
+    Number.isFinite(currentRide.fromLat) && Number.isFinite(currentRide.fromLng) &&
+    previousRide.toLat !== 0 && previousRide.toLng !== 0 &&
+    currentRide.fromLat !== 0 && currentRide.fromLng !== 0;
+  const fallbackTransferMeters = transferCoordinatesAreValid
+    ? haversineMeters(
+        previousRide.toLat,
+        previousRide.toLng,
+        currentRide.fromLat,
+        currentRide.fromLng
+      )
+    : segment.accessTransferMinutes * 70;
+  const target = resolveNavigationTarget(
+    { phase, activeLegIndex },
+    option.itinerary.legs,
+    destination
+  );
+  const toTransitTargetMeters = position && target
+    ? haversineMeters(position.lat, position.lng, target.lat, target.lng)
+    : phase === 'walkingTransfer'
+      ? fallbackTransferMeters
+      : option.walkToStationMeters;
   const toDestinationMeters = position
     ? haversineMeters(position.lat, position.lng, destination.lat, destination.lng)
     : option.walkFromStationMeters;
   const walkToBoardMinutes = estimateRemainingWalkMinutes(
-    Math.max(0, toBoardMeters),
+    Math.max(0, toTransitTargetMeters),
     speed.speedMps
   );
-  const dynamicDeparture = estimateDynamicDeparture({
-    nowMs,
-    departureAtMs: option.departureAtMs,
-    walkMinutes: phase === 'walkingToTransit' ? walkToBoardMinutes : 0,
-    fallbackHeadwayMinutes: option.fallbackHeadwayMinutes,
-  });
+  const boardingWalkMinutes = phase === 'walkingToTransit' || phase === 'walkingTransfer'
+    ? walkToBoardMinutes
+    : 0;
+  const isLaterBoarding = activeLegIndex > 0 &&
+    (phase === 'walkingTransfer' || phase === 'waiting');
+  const fallbackHeadwayMinutes = isLaterBoarding
+    ? TRANSFER_HEADWAY_MINUTES[currentRide?.provider] ?? option.fallbackHeadwayMinutes
+    : option.fallbackHeadwayMinutes;
+  const dynamicDeparture = isLaterBoarding
+    ? {
+        ...estimateDynamicDeparture({
+          nowMs,
+          departureAtMs: phaseStartedAtMs + fallbackHeadwayMinutes * 60_000,
+          walkMinutes: boardingWalkMinutes,
+          fallbackHeadwayMinutes,
+        }),
+        status: 'estimated' as const,
+      }
+    : estimateDynamicDeparture({
+        nowMs,
+        departureAtMs: option.departureAtMs,
+        walkMinutes: boardingWalkMinutes,
+        fallbackHeadwayMinutes: option.fallbackHeadwayMinutes,
+      });
+  const currentRideMinutes = currentRide?.minutes || 0;
+  const totalTransferCount = Math.max(0, rideLegs.length - 1);
+  const remainingTransferWaitMinutes = totalTransferCount > 0
+    ? option.transferWaitMinutes * segment.transferCount / totalTransferCount
+    : 0;
+  const remainingTransferBufferMinutes = segment.transferMinutes + remainingTransferWaitMinutes;
 
   let remainingWalkMeters = 0;
   let remainingWaitMinutes = 0;
@@ -92,21 +144,23 @@ function calculateLiveTiming(
 
   switch (phase) {
     case 'walkingToTransit':
-      remainingWalkMeters = Math.max(0, toBoardMeters) + option.walkFromStationMeters;
+    case 'walkingTransfer':
+      remainingWalkMeters = Math.max(0, toTransitTargetMeters) + option.walkFromStationMeters;
       remainingWaitMinutes = dynamicDeparture.waitMinutes;
-      remainingRide = option.rideMinutes;
-      transferBufferMinutes = option.transferMinutes + option.transferWaitMinutes;
+      remainingRide = segment.rideMinutes;
+      transferBufferMinutes = remainingTransferBufferMinutes;
       break;
     case 'waiting':
       remainingWalkMeters = option.walkFromStationMeters;
       remainingWaitMinutes = dynamicDeparture.waitMinutes;
-      remainingRide = option.rideMinutes;
-      transferBufferMinutes = option.transferMinutes + option.transferWaitMinutes;
+      remainingRide = segment.rideMinutes;
+      transferBufferMinutes = remainingTransferBufferMinutes;
       break;
     case 'riding':
       remainingWalkMeters = option.walkFromStationMeters;
-      remainingRide = remainingRideMinutes(option.rideMinutes, phaseStartedAtMs, nowMs);
-      transferBufferMinutes = option.transferMinutes + option.transferWaitMinutes;
+      remainingRide = remainingRideMinutes(currentRideMinutes, phaseStartedAtMs, nowMs) +
+        Math.max(0, segment.rideMinutes - currentRideMinutes);
+      transferBufferMinutes = remainingTransferBufferMinutes;
       break;
     case 'walkingToDestination':
       remainingWalkMeters = Math.max(0, toDestinationMeters);
@@ -130,10 +184,10 @@ function calculateLiveTiming(
   return {
     arrival,
     waitMinutes: remainingWaitMinutes,
-    catchable: phase === 'walkingToTransit' || phase === 'waiting'
+    catchable: phase === 'walkingToTransit' || phase === 'walkingTransfer' || phase === 'waiting'
       ? dynamicDeparture.catchable
       : true,
-    departureStatus: phase === 'walkingToTransit' || phase === 'waiting'
+    departureStatus: phase === 'walkingToTransit' || phase === 'walkingTransfer' || phase === 'waiting'
       ? dynamicDeparture.status
       : option.waitStatus,
   };
@@ -141,6 +195,7 @@ function calculateLiveTiming(
 
 export const useNavigationStore = create<NavigationState>((set, get) => ({
   phase: 'idle',
+  activeLegIndex: 0,
   phaseStartedAtMs: null,
   option: null,
   destination: null,
@@ -163,10 +218,12 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       }
 
       const phase: NavigationPhase = 'walkingToTransit';
+      const activeLegIndex = 0;
       const phaseStartedAtMs = Date.now();
       const speed = createWalkingSpeedState();
       const timing = calculateLiveTiming(
         phase,
+        activeLegIndex,
         phaseStartedAtMs,
         option,
         destination,
@@ -176,6 +233,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       );
       set({
         phase,
+        activeLegIndex,
         phaseStartedAtMs,
         option,
         destination,
@@ -209,35 +267,54 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
             timestampMs: nowMs,
           });
           let phase = current.phase;
+          let activeLegIndex = current.activeLegIndex;
           let phaseStartedAtMs = current.phaseStartedAtMs || nowMs;
+          const target = resolveNavigationTarget(
+            { phase, activeLegIndex },
+            current.option.itinerary.legs,
+            current.destination
+          );
 
           if (
-            phase === 'walkingToTransit' &&
+            (phase === 'walkingToTransit' || phase === 'walkingTransfer') &&
+            target &&
             haversineMeters(
               position.lat,
               position.lng,
-              current.option.boardHub.lat,
-              current.option.boardHub.lng
+              target.lat,
+              target.lng
             ) <= 80
           ) {
-            phase = 'waiting';
+            const progress = advanceNavigationProgress(
+              { phase, activeLegIndex },
+              current.option.itinerary.legs
+            );
+            phase = progress.phase;
+            activeLegIndex = progress.activeLegIndex;
             phaseStartedAtMs = nowMs;
           }
           if (
             phase === 'walkingToDestination' &&
+            target &&
             haversineMeters(
               position.lat,
               position.lng,
-              current.destination.lat,
-              current.destination.lng
+              target.lat,
+              target.lng
             ) <= 45
           ) {
-            phase = 'arrived';
+            const progress = advanceNavigationProgress(
+              { phase, activeLegIndex },
+              current.option.itinerary.legs
+            );
+            phase = progress.phase;
+            activeLegIndex = progress.activeLegIndex;
             phaseStartedAtMs = nowMs;
           }
 
           const timing = calculateLiveTiming(
             phase,
+            activeLegIndex,
             phaseStartedAtMs,
             current.option,
             current.destination,
@@ -247,6 +324,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
           );
           set({
             phase,
+            activeLegIndex,
             phaseStartedAtMs,
             currentPosition: position,
             speed: updatedSpeed,
@@ -269,6 +347,7 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
     subscription = null;
     set({
       phase: 'idle',
+      activeLegIndex: 0,
       phaseStartedAtMs: null,
       option: null,
       destination: null,
@@ -285,10 +364,14 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
   advancePhase: () => {
     const current = get();
     if (!current.option || !current.destination) return;
-    const phase = nextPhase(current.phase);
+    const progress = advanceNavigationProgress(
+      { phase: current.phase, activeLegIndex: current.activeLegIndex },
+      current.option.itinerary.legs
+    );
     const phaseStartedAtMs = Date.now();
     const timing = calculateLiveTiming(
-      phase,
+      progress.phase,
+      progress.activeLegIndex,
       phaseStartedAtMs,
       current.option,
       current.destination,
@@ -297,7 +380,8 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       phaseStartedAtMs
     );
     set({
-      phase,
+      phase: progress.phase,
+      activeLegIndex: progress.activeLegIndex,
       phaseStartedAtMs,
       liveArrival: timing.arrival,
       liveWaitMinutes: timing.waitMinutes,

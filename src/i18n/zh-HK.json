@@ -159,6 +159,7 @@
     "nextStage": "進入下一階段",
     "foregroundOnly": "此網頁／原生 MVP 只會在應用程式保持開啟時更新實時步速。",
     "phases": {
+      "walkingTransfer": "步行前往轉乘上車點",
       "idle": "尚未開始",
       "walkingToTransit": "步行前往上車點",
       "waiting": "正在候車",

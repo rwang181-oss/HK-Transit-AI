@@ -169,6 +169,10 @@ function rideLeg(route: IndexedRoute, fromHub: IndexedHub, toHub: IndexedHub, mi
     toHubId: toHub.id,
     fromName: fromHub.name_en,
     toName: toHub.name_en,
+    fromLat: fromHub.lat,
+    fromLng: fromHub.lng,
+    toLat: toHub.lat,
+    toLng: toHub.lng,
     minutes,
     kind: 'ride',
   };
