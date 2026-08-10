@@ -28,6 +28,7 @@ for (const testFile of [
   'tests/core/language-switch.test.cjs',
   'tests/core/navigation-progress.test.cjs',
   'tests/core/navigation-store-progress.test.cjs',
+  'tests/core/live-route-controller.test.cjs',
 ]) {
   const tests = spawnSync(process.execPath, [testFile], { stdio: 'inherit' });
   if (tests.status !== 0) {
