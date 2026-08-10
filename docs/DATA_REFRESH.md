@@ -12,6 +12,16 @@ The supplied GMB snapshot is legacy. Production deployment must replace it becau
 npm run data:refresh
 ```
 
+`npm run data:refresh` contacts the upstream data sources and replaces the bundled topology snapshots. It is a maintenance operation that needs internet access; run it before a release or when operators change routes or stops.
+
+## Local web development index
+
+```bash
+npm run web
+```
+
+Every local web start rebuilds `public/data/journey/` from the bundled snapshots before Expo starts. This keeps the ignored generated journey index aligned with the checked-in snapshots, but it does not download new operator data. To update the snapshots themselves, run `npm run data:refresh` first, then start web development or run `npm run build:journey-index`.
+
 The script writes:
 
 - `src/data/ctb.json`

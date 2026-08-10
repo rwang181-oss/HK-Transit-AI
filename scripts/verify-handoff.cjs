@@ -57,6 +57,12 @@ for (const item of generatedDirs) {
 
 const missing = required.filter((item) => !fs.existsSync(path.join(root, item)));
 const forbidden = generatedDirs.filter((item) => fs.existsSync(path.join(root, item)));
+const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+const webScript = packageJson.scripts?.web;
+
+if (typeof webScript !== 'string' || !webScript.startsWith('npm run build:journey-index')) {
+  missing.push('package.json web script beginning with npm run build:journey-index');
+}
 
 for (const item of required.filter((value) => value.startsWith('public/data/journey/'))) {
   const target = path.join(root, item);

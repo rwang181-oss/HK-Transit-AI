@@ -4,7 +4,7 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
-    "web": "expo start --web",
+    "web": "npm run build:journey-index && expo start --web",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "build:journey-index": "node scripts/build-journey-index.cjs",
