@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -52,6 +52,7 @@ export default function JourneyScreen() {
   const [activeField, setActiveField] = useState<Target | null>(null);
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
+  const hasInitializedFromLocation = useRef(false);
 
   const myLocationLabel = t('journey.myLocation');
 
@@ -67,11 +68,13 @@ export default function JourneyScreen() {
   }, [refreshWeather, requestPermission, getPosition]);
 
   useEffect(() => {
-    if (!position || fromPoint) return;
+    if (!position || hasInitializedFromLocation.current) return;
+    hasInitializedFromLocation.current = true;
+    if (fromPoint || fromQuery.trim()) return;
     const point = { ...position, name: myLocationLabel };
     setFromPoint(point);
     setFromQuery(myLocationLabel);
-  }, [position, fromPoint, myLocationLabel]);
+  }, [position, fromPoint, fromQuery, myLocationLabel]);
 
   useEffect(() => {
     if (!pendingMapPick) return;
