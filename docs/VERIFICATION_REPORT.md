@@ -4,22 +4,24 @@ Prepared: 2026-08-11
 
 ## Environment
 
-- Windows PowerShell
+- Bash on Windows workspace
 - Node.js `v24.18.0`
-- npm `11.17.0`
-- Source checkpoint before Task 8 corrections: `f60276eb00ab434a9c95e6866d587bfe6ea239bf`
+- npm `11.16.0`
+- Final verified web-review code checkpoint: `32671defa08e47feeb05c807bf1bc77be9345758`
 
-## Dependency installation
+## Data refresh
 
-```powershell
-npm ci
+```bash
+npm run data:refresh
 ```
 
-Exit code: `0`. The lockfile installation completed with 916 packages. npm's audit summary reported 21 transitive findings (7 moderate and 14 high); no automatic or breaking dependency upgrade was applied during this scoped verification task. `react-native-web` is declared as `~0.21.0`, matching the Expo 57 bundled-module range, and is installed from the lockfile.
+The command was stopped with exit code `130` after Citybus completed because GMB route-stop upstream requests returned repeated HTTP `403` responses, including `https://data.etagmb.gov.hk/route-stop/2000972/1` and `https://data.etagmb.gov.hk/route-stop/2002287/1` and `/2`. A generated Citybus timestamp-only update was restored. No refreshed snapshot was accepted.
+
+The retained `src/data/gmb.json` was independently checked: `schemaVersion` is `2`; it contains 1,161 routes and 13,101 route-stop records; routes have `sourceRouteId` and `routeSeq`; route-stop records have `sourceRouteId`, `routeSeq`, and `stopSeq` with zero missing values. This is a maintenance/network gate, not a claim that the upstream topology is current.
 
 ## Automated verification
 
-```powershell
+```bash
 npm run verify
 ```
 
@@ -27,45 +29,50 @@ Exit code: `0`.
 
 - Journey-index generation and validation passed: 8,769 hubs, 3,189 routes and 483 cells.
 - Provider route coverage passed: KMB 1,317, CTB 688, GMB 1,160 and MTR 24.
-- All dependency-free core suites passed, including the Node 24/Windows type-wrapper regression and the default 25-metre live-reroute threshold regression.
+- The dependency-free core runner reported 25 checks passed. Jest reported 17 passed suites, 72 passed tests, 0 failures, and 0 snapshots.
 - Full Expo TypeScript checking, source parsing and translation-key parity, mobile UX contracts, and handoff validation passed.
 
-```powershell
-npm test
-```
-
-Exit code: `0`. Jest reported 9 passed suites, 47 passed tests, 0 failures and 0 snapshots.
-
-```powershell
+```bash
 npm run build:web
 ```
 
-Exit code: `0`. Expo bundled 896 modules, exported `dist`, and the post-build step created `.nojekyll`, `version.json`, and the SPA `404.html` fallback.
+Exit code: `0`. Expo bundled 898 modules, exported `dist`, and the post-build step created `.nojekyll`, `version.json`, and the SPA `404.html` fallback. Node printed a non-failing warning that `NO_COLOR` was ignored because `FORCE_COLOR` was set.
+
+Post-build inspection confirmed:
+
+- `dist/index.html` and `dist/404.html` reference `/HK-Transit-AI/favicon.ico` and `/HK-Transit-AI/_expo/static/js/web/...` and both carry the same `hk-transit-build` metadata.
+- The emitted JavaScript contains `/HK-Transit-AI/_expo/loaders` and loads the journey index from `/HK-Transit-AI/data/journey`.
+- All five shards match their generated source exactly: `meta.json`, `hubs.json`, `cells.json`, `routes.json`, and `route-neighbors.json`.
+- `dist/data/journey/meta.json` reports schema version 1, 8,769 hubs, 3,189 routes, 483 cells, and 62,687 transfer points.
 
 Additional focused evidence:
 
-```powershell
-node .\node_modules\typescript\bin\tsc -p tsconfig.verify.json --noEmit --pretty false
+```bash
 git diff --check
 ```
 
-Both commands exited `0`. The offline structural check covers the local React type stubs and the explicitly typed `JourneyPolicy` default.
+Exit code: `0`. The final branch diff from local `main` contains 47 files: application/source files, app and core/UI tests, `scripts/run-core-tests.cjs`, `tsconfig.core.json`, the approved plan/spec, and the three release-evidence documents. It has no whitespace errors. Automated source verification passed translation-key parity. No remote branch, remote `main`, or deployment was changed by this task.
 
-## Corrected verification debt
+## Sensitive credential pattern scan — 2026-08-11
 
-- `scripts/verify-types.cjs` now invokes the installed TypeScript JavaScript entry point through Node instead of spawning `npx.cmd`, which Node 24 rejects with `EINVAL` on Windows.
-- The offline React stub includes `useCallback`, and the journey-store plan default is explicitly typed as `JourneyPolicy`.
-- Legacy Jest fixtures now resolve stable hashed hub IDs from stop membership, isolate the KMB request cache per test, and assert current request options. The KMB service-adapter suite also verifies exact bundled stop/route-stop mapping and one shared topology load across both public adapters.
-- The Windows spawn regression asserts the exact Node executable and resolved `typescript/bin/tsc` arguments, plus the explicit no-local-TypeScript `cmd.exe` fallback.
-- The search screen keeps the partial-provider warning visible beside the no-results state.
-- The live-route regression now exercises the default 25-metre threshold rather than supplying the same value explicitly.
-- `react-native-web` was restored to `package.json` and synchronized with `package-lock.json`.
-- As defensive state-machine hardening, the web map now uses one authoritative follow flag for Leaflet drag/recenter events and recentres in the same update that renders a new GPS marker. A mocked-Leaflet behavior lock covers drag-to-disable, immediate recenter, and a later followed GPS update at the requested zoom; it does not establish that the prior implementation failed in a browser.
-- The web test waits for the observable Leaflet `dragstart` registration with a bounded timeout rather than assuming the dynamic loader completes in one event-loop turn.
+The following command was run only against application source, scripts, workflow configuration, and manifests; it deliberately did not scan documentation or generated `dist` output:
+
+```bash
+set +e
+rg -n -i 'AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{35}|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|sk_(live|test)_[A-Za-z0-9]{16,}|-----BEGIN (RSA|EC|OPENSSH|PRIVATE) KEY-----' app src scripts .github app.json package.json
+scan_status=$?
+if [ "$scan_status" -eq 1 ]; then
+  echo 'credential-pattern scan: no matches'
+  exit 0
+fi
+exit "$scan_status"
+```
+
+Result: `rg` returned `1` (no matches), and the wrapper exited `0` after printing `credential-pattern scan: no matches`. This is a targeted pattern scan for common cloud/API, GitHub, Slack, Stripe, and private-key formats. It is not a dedicated secret scanner and cannot detect unknown, split, encoded, or non-matching credentials; it does not prove that no secrets exist outside the specified paths.
 
 ## Acceptance status and boundaries
 
-Controller browser acceptance completed on 2026-08-11 against the local Pages base path.
+Previous controller browser acceptance completed on 2026-08-11 against the local Pages base path. This Task 4 run independently verifies build artifacts and automated checks; it does not repeat or expand browser/device acceptance.
 
 ### Phone viewport: 390x844
 
@@ -86,7 +93,6 @@ Controller browser acceptance completed on 2026-08-11 against the local Pages ba
 
 - Browser acceptance used the local Pages base path and synthetic GPS injected into the current page for development testing. No real location was transmitted.
 - An earlier old-build observation based only on the marker's inline transform omitted the parent Leaflet pane transform, so it remains inconclusive and is not treated as a valid RED or root-cause proof.
-- Independent review approved the completed Task 8 evidence. One combined-stress run timed out once and was not reproduced; it was followed by 15 successful full runs.
-- No signed iOS build, physical-device location acceptance, native MapKit acceptance, App Store signing, or submission-readiness claim is made.
+- No signed iOS build, physical-device location acceptance, native MapKit acceptance, App Store signing, or submission-readiness claim is made. The iOS phase remains gated on owner approval of the web preview.
 
 The source audit confirms the home component renders `HK Transit`, translation-key parity passes, and the generated journey index contains all four required providers. This automated pass does not verify signed iOS builds, physical-device location behaviour, native MapKit behaviour, App Store signing, or submission readiness. The existing native/iOS boundary was not expanded.

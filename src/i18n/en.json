@@ -33,6 +33,8 @@
     "title": "Nearby",
     "permissionDenied": "Location permission is needed to show nearby stops",
     "grantPermission": "Grant Permission",
+    "locationPrompt": "Use your location to find nearby stops.",
+    "findNearby": "Find nearby stops",
     "loading": "Finding nearby stops...",
     "noStops": "No stops found nearby",
     "meter": "m",
@@ -152,6 +154,9 @@
     "youAreHere": "You are here",
     "nextTarget": "Next target",
     "locating": "Locating you...",
+    "locationTracking": "Live location tracking",
+    "locationAccuracy": "Accuracy ±{{meters}} m",
+    "locationUpdated": "Updated {{seconds}} sec ago",
     "recenter": "Recenter",
     "routedPath": "Pedestrian route",
     "estimatedRoute": "Estimated connection",
@@ -176,10 +181,20 @@
     },
     "errors": {
       "locationPermissionDenied": "Location permission was not granted.",
-      "locationTrackingFailed": "Live location tracking could not start."
+      "locationTrackingFailed": "Live location tracking could not start.",
+      "locationTimedOut": "Location could not be confirmed within 12 seconds.",
+      "locationUnavailable": "Location is temporarily unavailable."
     },
     "starting": "Starting live tracking...",
     "open": "Open live journey"
+  },
+  "location": {
+    "errors": {
+      "denied": "Location permission was not granted.",
+      "timedOut": "Location could not be confirmed within 12 seconds.",
+      "unavailable": "Location is temporarily unavailable.",
+      "failed": "Location could not be retrieved."
+    }
   },
   "weather": {
     "rain": {

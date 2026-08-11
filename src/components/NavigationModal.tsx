@@ -16,6 +16,7 @@ import { buildNavigationMapModel } from '@/src/journey/realtime/navigationMapMod
 import { resolveNavigationTarget } from '@/src/journey/realtime/navigationProgress';
 import { createLiveRouteController } from '@/src/journey/realtime/liveRouteController';
 import { walkingRouter, type WalkingRoute } from '@/src/journey/walking/walkingRouter';
+import { isUsableLocationSample, useLocationStore } from '@/src/stores/locationStore';
 import { useNavigationStore } from '@/src/stores/navigationStore';
 import { COLORS } from '@/src/utils/constants';
 
@@ -33,9 +34,18 @@ export function NavigationModal({ visible, starting, onClose }: NavigationModalP
     phase,
     activeLegIndex,
     currentPosition,
-    error,
+    error: navigationError,
+    retryLocation,
   } = useNavigationStore();
+  const {
+    latestSample,
+    status: locationStatus,
+    error: locationError,
+    requestError: locationRequestError,
+  } = useLocationStore();
   const [liveRoute, setLiveRoute] = useState<WalkingRoute | null>(null);
+  const [retryPending, setRetryPending] = useState(false);
+  const retryPendingRef = useRef(false);
   const controllerRef = useRef<ReturnType<typeof createLiveRouteController> | null>(null);
   const routeContextRef = useRef('');
   const target = useMemo(
@@ -48,6 +58,12 @@ export function NavigationModal({ visible, starting, onClose }: NavigationModalP
       : null,
     [option, destination, phase, activeLegIndex]
   );
+  const usableLocationSample = currentPosition
+    && isUsableLocationSample(latestSample)
+    && latestSample.position.lat === currentPosition.lat
+    && latestSample.position.lng === currentPosition.lng
+      ? latestSample
+      : null;
   const mapModel = useMemo(() => buildNavigationMapModel({
     phase,
     currentPosition,
@@ -56,6 +72,36 @@ export function NavigationModal({ visible, starting, onClose }: NavigationModalP
     optionGeometry: option?.geometry ?? [],
     currentPositionLabel: t('navigation.youAreHere'),
   }), [phase, currentPosition, target, liveRoute, option, t]);
+  const terminalLocationError = locationError ?? (
+    locationStatus === 'denied'
+    || locationStatus === 'timedOut'
+    || locationStatus === 'unavailable'
+    || locationStatus === 'failed'
+      ? locationRequestError
+      : null
+  );
+  const locationFailureText = navigationError
+    ? t(`navigation.errors.${navigationError}`)
+    : terminalLocationError
+      ? t(`location.errors.${terminalLocationError}`)
+      : null;
+  const locating = retryPending
+    || locationStatus === 'requesting'
+    || locationStatus === 'locating';
+
+  const retryLocationOnce = async () => {
+    if (retryPendingRef.current || locationStatus === 'requesting' || locationStatus === 'locating') {
+      return;
+    }
+    retryPendingRef.current = true;
+    setRetryPending(true);
+    try {
+      await retryLocation();
+    } finally {
+      retryPendingRef.current = false;
+      setRetryPending(false);
+    }
+  };
 
   useEffect(() => {
     if (!visible) return undefined;
@@ -139,16 +185,7 @@ export function NavigationModal({ visible, starting, onClose }: NavigationModalP
                   </Text>
                 </View>
                 <View style={styles.routeStatus}>
-                  {error ? (
-                    <Text style={[styles.routeStatusText, styles.locationErrorStatus]}>
-                      {t(`navigation.errors.${error}`)}
-                    </Text>
-                  ) : !currentPosition ? (
-                    <>
-                      <ActivityIndicator size="small" color={COLORS.hkRed} />
-                      <Text style={styles.routeStatusText}>{t('navigation.locating')}</Text>
-                    </>
-                  ) : mapModel.routeSource ? (
+                  {mapModel.routeSource ? (
                     <Text style={[
                       styles.routeStatusText,
                       mapModel.routeSource === 'estimated' && styles.estimatedStatus,
@@ -160,6 +197,50 @@ export function NavigationModal({ visible, starting, onClose }: NavigationModalP
                   ) : null}
                 </View>
               </View>
+              <View style={styles.locationStatus}>
+                {locating ? (
+                  <>
+                    <ActivityIndicator size="small" color={COLORS.hkRed} />
+                    <Text style={styles.locationStatusText}>{t('navigation.locating')}</Text>
+                  </>
+                ) : locationFailureText ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={t('common.retry')}
+                    onPress={() => void retryLocationOnce()}
+                    style={styles.locationRetry}
+                  >
+                    <Text style={[styles.locationStatusText, styles.locationErrorStatus]}>
+                      {locationFailureText} {t('common.retry')}
+                    </Text>
+                  </Pressable>
+                ) : !usableLocationSample ? (
+                  <>
+                    <ActivityIndicator size="small" color={COLORS.hkRed} />
+                    <Text style={styles.locationStatusText}>{t('navigation.locating')}</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.locationStatusText}>
+                      {t(locationStatus === 'tracking'
+                        ? 'navigation.locationTracking'
+                        : 'navigation.locationUpdated')}
+                    </Text>
+                    {typeof usableLocationSample.accuracyMeters === 'number' ? (
+                      <Text style={styles.locationMetaText}>
+                        {t('navigation.locationAccuracy', {
+                          meters: Math.round(usableLocationSample.accuracyMeters),
+                        })}
+                      </Text>
+                    ) : null}
+                    <Text style={styles.locationMetaText}>
+                      {t('navigation.locationUpdated', {
+                        seconds: Math.max(0, Math.round((Date.now() - usableLocationSample.timestampMs) / 1_000)),
+                      })}
+                    </Text>
+                  </>
+                )}
+              </View>
             </View>
           ) : option ? (
             <View style={styles.unavailableCard}>
@@ -167,7 +248,7 @@ export function NavigationModal({ visible, starting, onClose }: NavigationModalP
               <Text style={styles.unavailableText}>{t('navigation.targetUnavailable')}</Text>
             </View>
           ) : null}
-          {starting && !error ? (
+          {starting && !navigationError && !terminalLocationError ? (
             <View style={styles.startingCard}>
               <ActivityIndicator size="small" color={COLORS.hkRed} />
               <View style={styles.startingTextBlock}>
@@ -208,6 +289,10 @@ const styles = StyleSheet.create({
   routeStatusText: { color: '#176B4D', fontSize: 11, lineHeight: 15, fontWeight: '700', textAlign: 'right' },
   estimatedStatus: { color: '#9A6700' },
   locationErrorStatus: { color: '#B42318' },
+  locationStatus: { minHeight: 42, paddingHorizontal: 15, paddingVertical: 9, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
+  locationStatusText: { color: '#176B4D', fontSize: 11, lineHeight: 16, fontWeight: '700' },
+  locationMetaText: { color: COLORS.textSecondary, fontSize: 10, lineHeight: 15 },
+  locationRetry: { minHeight: 32, justifyContent: 'center' },
   unavailableCard: { minHeight: 84, borderRadius: 16, backgroundColor: COLORS.bgCard, borderWidth: 1, borderColor: COLORS.border, justifyContent: 'center', paddingHorizontal: 18 },
   unavailableText: { color: COLORS.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 5 },
   startingCard: { minHeight: 72, borderRadius: 16, backgroundColor: COLORS.bgCard, borderWidth: 1, borderColor: COLORS.border, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, gap: 14 },

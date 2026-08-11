@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Web route search ranks exact public route numbers first and opens the provider-neutral route-detail view used by saved-route cards.
+- Saved routes retain their provider and boarding stop; legacy saved routes migrate to KMB without losing the saved entry.
+- Shared foreground location lifecycle and live journey progress are covered by core and component tests.
+
+### Changed
+- Leaflet keeps one map and tile layer, reconciles markers and path layers by stable identifiers, and lets the rider recenter after manually dragging the map.
+- The GitHub Pages web export serves journey-index shards and loader paths below `/HK-Transit-AI` and includes `.nojekyll`, `version.json`, and an SPA `404.html` fallback.
+
+### Release gate
+- The 2026-08-11 topology refresh was not accepted because the GMB route-stop upstream returned HTTP 403 responses. The previously validated schema-v2 snapshots remain checked in.
+- Web review is the delivery gate. Native iOS map replacement, device testing, signing, and App Store work begin only after owner approval of the web preview.
+
 ## 2.0.1 mobile performance and journey UX — 2026-08-06
 
 ### Changed

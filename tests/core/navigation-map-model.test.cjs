@@ -31,12 +31,14 @@ const optionGeometry = [
   });
 
   assert.deepEqual(output.points[0], {
+    id: 'current-location',
     lat: 22.3,
     lng: 114.2,
     kind: 'me',
     label: 'You are here',
   });
   assert.deepEqual(output.points[1], {
+    id: 'navigation-target:A',
     lat: 22.31,
     lng: 114.21,
     kind: 'stop',

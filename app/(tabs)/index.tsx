@@ -17,7 +17,7 @@ import {
   type TripPoint,
 } from '@/src/stores/journeyStore';
 import { useMapPickerStore } from '@/src/stores/mapPickerStore';
-import { useLocationStore } from '@/src/stores/locationStore';
+import { isUsableLocationSample, useLocationStore } from '@/src/stores/locationStore';
 import { useWeatherStore } from '@/src/stores/weatherStore';
 import { COLORS } from '@/src/utils/constants';
 import { changeLanguage } from '@/src/utils/i18n';
@@ -38,10 +38,11 @@ export default function JourneyScreen() {
   const pendingMapPick = useMapPickerStore((state) => state.pending);
   const setPendingMapPick = useMapPickerStore((state) => state.setPending);
   const {
-    position,
+    latestSample,
     loading: locationLoading,
-    requestPermission,
-    getPosition,
+    requestError: locationRequestError,
+    locateOnce,
+    retryLocate: retryLocation,
   } = useLocationStore();
   const { weather, refresh: refreshWeather } = useWeatherStore();
 
@@ -52,7 +53,6 @@ export default function JourneyScreen() {
   const [activeField, setActiveField] = useState<Target | null>(null);
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
-  const hasInitializedFromLocation = useRef(false);
   const hasEditedFrom = useRef(false);
 
   const myLocationLabel = t('journey.myLocation');
@@ -60,22 +60,9 @@ export default function JourneyScreen() {
   useEffect(() => {
     const ambientTimer = setTimeout(() => {
       void refreshWeather();
-      void (async () => {
-        const allowed = await requestPermission();
-        if (allowed) await getPosition();
-      })();
     }, 250);
     return () => clearTimeout(ambientTimer);
-  }, [refreshWeather, requestPermission, getPosition]);
-
-  useEffect(() => {
-    if (!position || hasInitializedFromLocation.current || hasEditedFrom.current) return;
-    hasInitializedFromLocation.current = true;
-    if (fromPoint || fromQuery.trim()) return;
-    const point = { ...position, name: myLocationLabel };
-    setFromPoint(point);
-    setFromQuery(myLocationLabel);
-  }, [position, fromPoint, fromQuery, myLocationLabel]);
+  }, [refreshWeather]);
 
   useEffect(() => {
     if (!pendingMapPick) return;
@@ -141,12 +128,17 @@ export default function JourneyScreen() {
   };
 
   const useCurrentLocation = async () => {
-    const allowed = await requestPermission();
-    if (!allowed) return;
-    await getPosition();
-    const latest = useLocationStore.getState().position;
-    if (!latest) return;
-    setFromPoint({ ...latest, name: myLocationLabel });
+    const sample = await locateOnce();
+    if (!sample) return;
+    setFromPoint({ ...sample.position, name: myLocationLabel });
+    setFromQuery(myLocationLabel);
+    setActiveField(null);
+  };
+
+  const retryCurrentLocation = async () => {
+    const sample = await retryLocation();
+    if (!sample) return;
+    setFromPoint({ ...sample.position, name: myLocationLabel });
     setFromQuery(myLocationLabel);
     setActiveField(null);
   };
@@ -169,9 +161,9 @@ export default function JourneyScreen() {
       params.set('toLat', String(toPoint.lat));
       params.set('toLng', String(toPoint.lng));
     }
-    if (position) {
-      params.set('myLat', String(position.lat));
-      params.set('myLng', String(position.lng));
+    if (isUsableLocationSample(latestSample)) {
+      params.set('myLat', String(latestSample.position.lat));
+      params.set('myLng', String(latestSample.position.lng));
     }
     router.push(`/journey/map-picker?${params.toString()}` as never);
   };
@@ -195,6 +187,7 @@ export default function JourneyScreen() {
     t(`weather.rain.${weather.rainIntensity}`),
   ].filter(Boolean);
   const readyToPlan = Boolean(fromPoint && toPoint);
+  const locationFailed = locationRequestError !== null;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -283,6 +276,14 @@ export default function JourneyScreen() {
               <Text style={styles.swapText}>⇅</Text>
             </Pressable>
           </View>
+          {locationFailed ? (
+            <View style={styles.locationNotice}>
+              <Text style={styles.locationNoticeText}>{t(`location.errors.${locationRequestError}`)}</Text>
+              <Pressable style={styles.locationRetry} onPress={() => void retryCurrentLocation()}>
+                <Text style={styles.locationRetryText}>{t('common.retry')}</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
           <Pressable style={styles.mapPickerButton} onPress={openMapPicker}>
             <Text style={styles.mapPickerIcon}>⌖</Text>
@@ -405,6 +406,10 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: COLORS.border, marginHorizontal: 10 },
   locationButton: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#E7F6F3', alignItems: 'center', justifyContent: 'center' },
   locationIcon: { color: COLORS.jade, fontSize: 22, fontWeight: '700' },
+  locationNotice: { marginTop: 10, padding: 12, borderRadius: 12, backgroundColor: '#FFF4ED', flexDirection: 'row', alignItems: 'center', gap: 10 },
+  locationNoticeText: { color: '#9A3412', fontSize: 12, lineHeight: 17, flex: 1 },
+  locationRetry: { borderRadius: 9, backgroundColor: '#FFFFFF', paddingHorizontal: 10, paddingVertical: 7 },
+  locationRetryText: { color: COLORS.hkRed, fontSize: 12, fontWeight: '700' },
   swapButton: { width: 40, height: 40, borderRadius: 13, backgroundColor: COLORS.bgRaised, alignItems: 'center', justifyContent: 'center', marginLeft: 9 },
   swapText: { color: COLORS.textPrimary, fontSize: 19, fontWeight: '700' },
   mapPickerButton: {

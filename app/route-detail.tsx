@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from 'react-i18next';
@@ -27,16 +27,18 @@ function describeEta(eta: ETA): string {
 
 export default function RouteDetailScreen() {
   const { t, i18n } = useTranslation();
-  const { provider: providerParam, route, bound: boundParam, variant: variantParam } = useLocalSearchParams<{
+  const { provider: providerParam, route, bound: boundParam, variant: variantParam, stopId: stopIdParam } = useLocalSearchParams<{
     provider?: string;
     route?: string;
     bound?: string;
     variant?: string;
+    stopId?: string;
   }>();
   const provider = Array.isArray(providerParam) ? undefined : providerParam;
   const routeCode = Array.isArray(route) ? '' : route || '';
   const bound = boundParam === 'I' ? 'I' : boundParam === 'O' ? 'O' : undefined;
   const routeVariant = Array.isArray(variantParam) ? undefined : variantParam || undefined;
+  const savedStopId = Array.isArray(stopIdParam) ? undefined : stopIdParam || undefined;
   const publicRouteCode = isProviderId(provider) ? formatPublicRouteCode(provider, routeCode) : routeCode;
   const isEN = i18n.language === 'en';
   const [stops, setStops] = useState<RouteDirectionStop[]>([]);
@@ -45,6 +47,7 @@ export default function RouteDetailScreen() {
   const [etaErrors, setEtaErrors] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     if (!isProviderId(provider) || !routeCode || !bound) {
@@ -79,15 +82,45 @@ export default function RouteDetailScreen() {
     }
     setExpandedStopKey(stopKey);
     if (etas[stopKey]) return;
+    setEtaErrors((current) => {
+      if (!current[stopKey]) return current;
+      const next = { ...current };
+      delete next[stopKey];
+      return next;
+    });
 
     try {
       const transitProvider = await getProvider(provider);
-      const rows = await loadStopEta(transitProvider, stopId, routeCode);
+      const rows = await loadStopEta(transitProvider, stopId, routeCode, routeVariant);
       setEtas((current) => ({ ...current, [stopKey]: filterStopEtaByBound(rows, bound) }));
+      setEtaErrors((current) => {
+        if (!current[stopKey]) return current;
+        const next = { ...current };
+        delete next[stopKey];
+        return next;
+      });
     } catch {
       setEtaErrors((current) => ({ ...current, [stopKey]: true }));
     }
   };
+
+  useEffect(() => {
+    if (!savedStopId || !isProviderId(provider) || !routeCode || !bound || !stops.some(({ stop }) => stop.stopId === savedStopId)) return;
+    const stopKey = getRouteStopStateKey(provider, routeCode, bound, savedStopId, routeVariant);
+    setExpandedStopKey(stopKey);
+    if (etas[stopKey] || etaErrors[stopKey]) return;
+
+    let active = true;
+    void getProvider(provider)
+      .then((transitProvider) => loadStopEta(transitProvider, savedStopId, routeCode, routeVariant))
+      .then((rows) => {
+        if (active) setEtas((current) => ({ ...current, [stopKey]: filterStopEtaByBound(rows, bound) }));
+      })
+      .catch(() => {
+        if (active) setEtaErrors((current) => ({ ...current, [stopKey]: true }));
+      });
+    return () => { active = false; };
+  }, [bound, etas, etaErrors, provider, routeCode, routeVariant, savedStopId, stops]);
 
   return (
     <View style={styles.container}>
@@ -97,7 +130,7 @@ export default function RouteDetailScreen() {
       ) : loadError ? (
         <View style={styles.center}><Text style={styles.message}>{t('search.providerUnavailable')}</Text></View>
       ) : (
-        <ScrollView style={styles.list}>
+        <ScrollView ref={scrollViewRef} style={styles.list}>
           {stops.map(({ link, stop }) => {
             const stopKey = isProviderId(provider) && routeCode && bound
               ? getRouteStopStateKey(provider, routeCode, bound, stop.stopId, routeVariant)
@@ -106,7 +139,16 @@ export default function RouteDetailScreen() {
             const stopEtas = etas[stopKey];
             const stopName = isEN ? stop.name_en : stop.name_tc;
             return (
-              <Pressable key={`${link.stopId}-${link.seq}`} style={styles.stopRow} onPress={() => void toggleStop(stop.stopId)}>
+              <Pressable
+                key={`${link.stopId}-${link.seq}`}
+                style={styles.stopRow}
+                onLayout={(event) => {
+                  if (stop.stopId === savedStopId) {
+                    scrollViewRef.current?.scrollTo({ y: event.nativeEvent.layout.y, animated: true });
+                  }
+                }}
+                onPress={() => void toggleStop(stop.stopId)}
+              >
                 <View style={styles.stopHeader}>
                   <Text style={styles.sequence}>{link.seq}</Text>
                   <Text style={styles.stopName}>{stopName || stop.stopId}</Text>

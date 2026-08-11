@@ -8,11 +8,16 @@ let mockPosition: { lat: number; lng: number } | null = {
   lat: 22.2819,
   lng: 114.1588,
 };
+let mockRequestError: string | null = null;
 const mockLocationState = {
   get position() { return mockPosition; },
   loading: false,
+  status: 'idle',
+  get requestError() { return mockRequestError; },
   requestPermission: jest.fn(async () => false),
   getPosition: jest.fn(async () => undefined),
+  locateOnce: jest.fn(async () => undefined),
+  retryLocate: jest.fn(async () => undefined),
 };
 const mockWeatherState = {
   weather: {
@@ -85,6 +90,15 @@ describe('JourneyScreen origin input', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     mockPosition = { lat: 22.2819, lng: 114.1588 };
+    mockRequestError = null;
+    mockLocationState.requestPermission.mockClear();
+    mockLocationState.locateOnce.mockReset();
+    mockLocationState.locateOnce.mockResolvedValue({
+      position: { lat: 22.2819, lng: 114.1588 },
+      accuracyMeters: 8,
+      speedMps: null,
+      timestampMs: Date.now(),
+    } as never);
   });
 
   afterEach(() => {
@@ -97,7 +111,7 @@ describe('JourneyScreen origin input', () => {
       renderer = TestRenderer.create(<JourneyScreen />);
     });
 
-    expect(renderer!.root.findAllByType(TextInput)[0].props.value).toBe('journey.myLocation');
+    expect(renderer!.root.findAllByType(TextInput)[0].props.value).toBe('');
 
     act(() => {
       renderer!.root.findAllByType(TextInput)[0].props.onChangeText('Central');
@@ -126,6 +140,57 @@ describe('JourneyScreen origin input', () => {
     });
 
     expect(renderer!.root.findAllByType(TextInput)[0].props.value).toBe('');
+    act(() => renderer!.unmount());
+  });
+
+  it('does not request location until the user taps My location', () => {
+    let renderer: TestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(<JourneyScreen />);
+      jest.runOnlyPendingTimers();
+    });
+
+    expect(mockLocationState.requestPermission).not.toHaveBeenCalled();
+    expect(mockLocationState.locateOnce).not.toHaveBeenCalled();
+
+    const locationButton = renderer!.root.findAll((node) =>
+      node.props.accessibilityLabel === 'journey.myLocation'
+    )[0];
+    act(() => {
+      void locationButton.props.onPress();
+    });
+    expect(mockLocationState.locateOnce).toHaveBeenCalledTimes(1);
+    act(() => renderer!.unmount());
+  });
+
+  it('does not reuse a retained global position when a new My location request fails', async () => {
+    mockPosition = { lat: 22.2819, lng: 114.1588 };
+    mockLocationState.locateOnce.mockResolvedValueOnce(null as never);
+    let renderer: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<JourneyScreen />);
+    });
+    await act(async () => {
+      renderer!.root.findAllByType(TextInput)[0].props.onChangeText('Central');
+      const locationButton = renderer!.root.findAll((node) =>
+        node.props.accessibilityLabel === 'journey.myLocation'
+      )[0];
+      await locationButton.props.onPress();
+    });
+    expect(renderer!.root.findAllByType(TextInput)[0].props.value).toBe('Central');
+    act(() => renderer!.unmount());
+  });
+
+  it('shows a recoverable one-shot error even while shared tracking remains available', () => {
+    mockRequestError = 'timedOut';
+    let renderer: TestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(<JourneyScreen />);
+    });
+    const errorCopy = renderer!.root.findAll((node) =>
+      node.props.children === 'location.errors.timedOut'
+    );
+    expect(errorCopy.length).toBeGreaterThan(0);
     act(() => renderer!.unmount());
   });
 });

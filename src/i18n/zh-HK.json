@@ -33,6 +33,8 @@
     "title": "附近",
     "permissionDenied": "需要定位權限才能顯示附近車站",
     "grantPermission": "允許定位",
+    "locationPrompt": "使用你的位置以搜尋附近車站。",
+    "findNearby": "搜尋附近車站",
     "loading": "正在搜尋附近車站……",
     "noStops": "附近沒有車站",
     "meter": "米",
@@ -152,6 +154,9 @@
     "youAreHere": "你的位置",
     "nextTarget": "下一目標",
     "locating": "正在定位……",
+    "locationTracking": "正在實時更新位置",
+    "locationAccuracy": "準確度 ±{{meters}} 米",
+    "locationUpdated": "{{seconds}} 秒前更新",
     "recenter": "重新置中",
     "routedPath": "行人路線",
     "estimatedRoute": "估算連接線",
@@ -176,10 +181,20 @@
     },
     "errors": {
       "locationPermissionDenied": "未取得定位權限。",
-      "locationTrackingFailed": "無法開始實時定位追蹤。"
+      "locationTrackingFailed": "無法開始實時定位追蹤。",
+      "locationTimedOut": "12 秒內未能確認你的位置。",
+      "locationUnavailable": "暫時無法取得定位資料。"
     },
     "starting": "正在開始實時追蹤……",
     "open": "開啟實時行程"
+  },
+  "location": {
+    "errors": {
+      "denied": "未取得定位權限。",
+      "timedOut": "12 秒內未能確認你的位置。",
+      "unavailable": "暫時無法取得定位資料。",
+      "failed": "未能取得你的位置。"
+    }
   },
   "weather": {
     "rain": {

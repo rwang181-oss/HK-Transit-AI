@@ -3,7 +3,7 @@ const maps = require('../../.core-test-dist/components/transitMapInitialization.
 
 const initialization = maps.createTransitMapInitialization({
   center: { lat: 22.2, lng: 114.1 },
-  points: [{ lat: 22.2, lng: 114.1, kind: 'stop', label: 'Old' }],
+  points: [{ id: 'old', lat: 22.2, lng: 114.1, kind: 'stop', label: 'Old' }],
   paths: [],
   followPoint: null,
   followZoom: undefined,
@@ -11,7 +11,7 @@ const initialization = maps.createTransitMapInitialization({
 
 initialization.update({
   center: { lat: 22.3, lng: 114.2 },
-  points: [{ lat: 22.31, lng: 114.21, kind: 'me', label: 'Latest' }],
+  points: [{ id: 'current-location', lat: 22.31, lng: 114.21, kind: 'me', label: 'Latest' }],
   paths: [{ id: 'latest', points: [{ lat: 22.3, lng: 114.2 }, { lat: 22.31, lng: 114.21 }] }],
   followPoint: { lat: 22.31, lng: 114.21 },
   followZoom: 17,
@@ -20,7 +20,7 @@ initialization.update({
 assert.deepEqual(initialization.consume(), {
   mapCenter: { lat: 22.31, lng: 114.21 },
   mapZoom: 17,
-  points: [{ lat: 22.31, lng: 114.21, kind: 'me', label: 'Latest' }],
+  points: [{ id: 'current-location', lat: 22.31, lng: 114.21, kind: 'me', label: 'Latest' }],
   paths: [{ id: 'latest', points: [{ lat: 22.3, lng: 114.2 }, { lat: 22.31, lng: 114.21 }] }],
   shouldFitBounds: false,
 });

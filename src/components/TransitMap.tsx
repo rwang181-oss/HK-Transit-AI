@@ -15,6 +15,7 @@ import {
   type MapPoint,
 } from '@/src/components/transitMapInitialization';
 import { loadLeaflet } from '@/src/components/loadLeaflet';
+import { createLeafletLayerController } from '@/src/components/leafletLayerController';
 import { COLORS } from '@/src/utils/constants';
 
 export type { MapPath, MapPoint } from '@/src/components/transitMapInitialization';
@@ -62,7 +63,7 @@ export function TransitMap({
   const { t } = useTranslation();
   const containerRef = useRef<View>(null);
   const mapRef = useRef<any>(null);
-  const layerRef = useRef<any>(null);
+  const layerControllerRef = useRef<ReturnType<typeof createLeafletLayerController> | null>(null);
   const leafletRef = useRef<any>(null);
   const pickHandlerRef = useRef(onPickPoint);
   const initializationRef = useRef<ReturnType<typeof createTransitMapInitialization> | null>(null);
@@ -124,7 +125,24 @@ export function TransitMap({
           if (!disposed) setLoading(false);
         });
         mapRef.current = map;
-        renderLayers(map, L, initial.points, initial.paths, initial.shouldFitBounds);
+        const layerController = createLeafletLayerController(map, L, {
+          pointIcon: (point) => L.divIcon({
+            className: 'hk-transit-marker',
+            html: `<div style="width:18px;height:18px;border-radius:50%;background:${pointColor(point.kind)};border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.3);"></div>`,
+            iconSize: [18, 18],
+            iconAnchor: [9, 9],
+          }),
+          pathStyle: (path) => ({
+            color: path.color || COLORS.hkRed,
+            weight: 5,
+            opacity: 0.86,
+            dashArray: path.dashed ? '8 8' : undefined,
+            lineCap: 'round',
+            lineJoin: 'round',
+          }),
+        });
+        layerControllerRef.current = layerController;
+        layerController.reconcile(initial.points, initial.paths, initial.shouldFitBounds);
         setMapReadyVersion((version) => version + 1);
         requestAnimationFrame(() => map.invalidateSize(false));
 
@@ -147,15 +165,16 @@ export function TransitMap({
       observer?.disconnect();
       mapRef.current = null;
       leafletRef.current = null;
+      layerControllerRef.current = null;
       map?.remove();
     };
   }, []);
 
   useEffect(() => {
     const map = mapRef.current;
-    const L = leafletRef.current;
-    if (!map || !L) return;
-    renderLayers(map, L, points, paths, !followPoint);
+    const layerController = layerControllerRef.current;
+    if (!map || !layerController) return;
+    layerController.reconcile(points, paths, !followPoint);
     if (followingRef.current && followPoint) {
       map.setView(
         [followPoint.lat, followPoint.lng],
@@ -182,53 +201,6 @@ export function TransitMap({
       { animate: false }
     );
   };
-
-  function renderLayers(
-    map: any,
-    L: any,
-    mapPoints: MapPoint[],
-    mapPaths: MapPath[],
-    shouldFitBounds: boolean
-  ) {
-    if (layerRef.current) map.removeLayer(layerRef.current);
-    const layer = L.layerGroup();
-    const bounds: Array<[number, number]> = [];
-
-    for (const path of mapPaths) {
-      const latLngs = path.points
-        .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng))
-        .map((point) => [point.lat, point.lng] as [number, number]);
-      if (latLngs.length < 2) continue;
-      L.polyline(latLngs, {
-        color: path.color || COLORS.hkRed,
-        weight: 5,
-        opacity: 0.86,
-        dashArray: path.dashed ? '8 8' : undefined,
-        lineCap: 'round',
-        lineJoin: 'round',
-      }).addTo(layer);
-      bounds.push(...latLngs);
-    }
-
-    for (const point of mapPoints) {
-      const icon = L.divIcon({
-        className: 'hk-transit-marker',
-        html: `<div style="width:18px;height:18px;border-radius:50%;background:${pointColor(point.kind)};border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.3);"></div>`,
-        iconSize: [18, 18],
-        iconAnchor: [9, 9],
-      });
-      const marker = L.marker([point.lat, point.lng], { icon, keyboard: false });
-      if (point.label) marker.bindTooltip(point.label, { direction: 'top' });
-      marker.addTo(layer);
-      bounds.push([point.lat, point.lng]);
-    }
-
-    layer.addTo(map);
-    layerRef.current = layer;
-    if (shouldFitBounds && bounds.length > 1) {
-      map.fitBounds(bounds, { padding: [24, 24], maxZoom: 16, animate: false });
-    }
-  }
 
   if (Platform.OS !== 'web') {
     const destination = points.find((point) => point.kind === 'end')

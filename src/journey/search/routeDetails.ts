@@ -28,9 +28,10 @@ export async function loadRouteDirection(
 export async function loadStopEta(
   provider: Pick<TransitProvider, 'fetchETA'>,
   stopId: string,
-  route: string
+  route: string,
+  routeVariant?: string
 ): Promise<ETA[]> {
-  return provider.fetchETA(stopId, route);
+  return provider.fetchETA(stopId, route, routeVariant);
 }
 
 export function filterStopEtaByBound(etas: ETA[], bound: 'O' | 'I'): ETA[] {

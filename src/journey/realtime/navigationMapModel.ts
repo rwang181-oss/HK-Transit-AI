@@ -3,6 +3,7 @@ import type { WalkingRoute } from '../walking/walkingRouter';
 import type { NavigationPhase, NavigationTarget } from './navigationProgress';
 
 export interface NavigationMapPoint extends Coordinate {
+  id: string;
   kind: 'me' | 'stop' | 'end';
   label: string;
 }
@@ -53,6 +54,7 @@ export function buildNavigationMapModel(input: NavigationMapModelInput): Navigat
 
   if (currentPosition) {
     points.push({
+      id: 'current-location',
       ...currentPosition,
       kind: 'me',
       label: input.currentPositionLabel,
@@ -60,6 +62,7 @@ export function buildNavigationMapModel(input: NavigationMapModelInput): Navigat
   }
   if (target) {
     points.push({
+      id: `navigation-target:${input.target!.id}`,
       lat: target.lat,
       lng: target.lng,
       kind: target.kind,

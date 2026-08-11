@@ -6,6 +6,7 @@ import type {
   ETA,
 } from './types';
 import * as kmbAPI from '@/src/services/kmbAPI';
+import { parseKmbServiceType } from './kmbServiceVariant';
 
 export const kmbProvider: TransitProvider = {
   id: 'KMB',
@@ -38,9 +39,10 @@ export const kmbProvider: TransitProvider = {
 
   async fetchRouteStops(
     route: string,
-    bound: 'O' | 'I'
+    bound: 'O' | 'I',
+    routeVariant?: string
   ): Promise<RouteStopLink[]> {
-    const raw = await kmbAPI.fetchRouteStops(route, bound, 1);
+    const raw = await kmbAPI.fetchRouteStops(route, bound, parseKmbServiceType(routeVariant));
     return raw.map((rs) => ({
       route: rs.route,
       bound: rs.bound,
@@ -50,8 +52,8 @@ export const kmbProvider: TransitProvider = {
     }));
   },
 
-  async fetchETA(stopId: string, route: string): Promise<ETA[]> {
-    const raw = await kmbAPI.fetchETA(stopId, route, 1);
+  async fetchETA(stopId: string, route: string, routeVariant?: string): Promise<ETA[]> {
+    const raw = await kmbAPI.fetchETA(stopId, route, parseKmbServiceType(routeVariant));
     return raw.map((e) => ({
       route: e.route,
       bound: e.dir,

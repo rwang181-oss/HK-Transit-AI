@@ -16,6 +16,8 @@ export type ProviderLoader = (id: ProviderId) => Promise<Pick<TransitProvider, '
 
 const PROVIDERS: ProviderId[] = ['KMB', 'CTB', 'GMB', 'MTR'];
 
+const providerRank = new Map(PROVIDERS.map((provider, index) => [provider, index]));
+
 function catalogKey(provider: ProviderId, route: Route): string {
   return route.routeVariant
     ? `${provider}:${route.route}:${route.bound}:${route.routeVariant}`
@@ -53,5 +55,28 @@ export async function loadRouteCatalog(loadProvider: ProviderLoader): Promise<Ro
 export function searchRouteCatalog(entries: RouteCatalogEntry[], query: string, limit = 30): RouteCatalogEntry[] {
   const normalized = query.trim().toLocaleUpperCase();
   if (!normalized) return [];
-  return entries.filter((entry) => entry.searchableText.includes(normalized)).slice(0, limit);
+  return entries
+    .flatMap((entry) => {
+      const publicRoute = entry.publicRoute.toLocaleUpperCase();
+      const internalCodes = [entry.route, entry.routeVariant]
+        .filter((value): value is string => Boolean(value))
+        .map((value) => value.toLocaleUpperCase());
+      const routeText = [entry.orig_en, entry.orig_tc, entry.dest_en, entry.dest_tc]
+        .join(' ')
+        .toLocaleUpperCase();
+      const score = publicRoute === normalized ? 0
+        : publicRoute.startsWith(normalized) ? 1
+        : publicRoute.includes(normalized) ? 2
+        : internalCodes.some((code) => code.includes(normalized)) ? 3
+        : routeText.includes(normalized) ? 4
+        : Number.POSITIVE_INFINITY;
+      return Number.isFinite(score) ? [{ entry, score }] : [];
+    })
+    .sort((left, right) =>
+      left.score - right.score ||
+      (providerRank.get(left.entry.provider) ?? PROVIDERS.length) - (providerRank.get(right.entry.provider) ?? PROVIDERS.length) ||
+      left.entry.key.localeCompare(right.entry.key)
+    )
+    .slice(0, limit)
+    .map(({ entry }) => entry);
 }

@@ -79,7 +79,7 @@ export default function MapPickerScreen() {
     myLng?: string;
   }>();
   const setPending = useMapPickerStore((state) => state.setPending);
-  const { position, requestPermission, getPosition } = useLocationStore();
+  const locateOnce = useLocationStore((state) => state.locateOnce);
   const mapContainerRef = useRef<View>(null);
   const mapRef = useRef<any>(null);
   const centerRef = useRef(DEFAULT_CENTER);
@@ -100,9 +100,8 @@ export default function MapPickerScreen() {
     const myLat = Number(params.myLat);
     const myLng = Number(params.myLng);
     if (validCoordinate(myLat) && validCoordinate(myLng)) return { lat: myLat, lng: myLng };
-    if (position && validCoordinate(position.lat) && validCoordinate(position.lng)) return position;
     return DEFAULT_CENTER;
-  }, [params.fromLat, params.fromLng, params.toLat, params.toLng, params.myLat, params.myLng, position, target]);
+  }, [params.fromLat, params.fromLng, params.toLat, params.toLng, params.myLat, params.myLng, target]);
 
   const updateAddress = useCallback(async (lat: number, lng: number) => {
     const sequence = ++requestSequence.current;
@@ -177,16 +176,13 @@ export default function MapPickerScreen() {
   }, [initialCenter, updateAddress]);
 
   const goToMyLocation = async () => {
-    let latest = useLocationStore.getState().position;
-    if (!latest) {
-      const allowed = await requestPermission();
-      if (allowed) {
-        await getPosition();
-        latest = useLocationStore.getState().position;
-      }
-    }
-    if (!latest || !mapRef.current) return;
-    mapRef.current.setView([latest.lat, latest.lng], 17, { animate: true, duration: 0.25 });
+    const sample = await locateOnce();
+    if (!sample || !mapRef.current) return;
+    mapRef.current.setView(
+      [sample.position.lat, sample.position.lng],
+      17,
+      { animate: true, duration: 0.25 }
+    );
   };
 
   const confirm = () => {

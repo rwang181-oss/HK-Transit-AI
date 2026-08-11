@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import * as Location from 'expo-location';
+import { useLocationStore, type LocationSample, type LocationStatus } from './locationStore';
 import type { EtaStatus, JourneyOption, TripPoint } from '@/src/stores/journeyStore';
 import type { IndexedJourneyOption } from '@/src/journey/index/types';
 import {
@@ -41,6 +41,7 @@ interface NavigationState {
   error: string | null;
   start: (option: NavigationJourneyOption, destination: TripPoint) => Promise<void>;
   stop: () => void;
+  retryLocation: () => Promise<void>;
   advancePhase: () => void;
 }
 
@@ -51,7 +52,7 @@ interface LiveTiming {
   departureStatus: EtaStatus;
 }
 
-let subscription: Location.LocationSubscription | null = null;
+let unsubscribeLocation: (() => void) | null = null;
 let navigationGeneration = 0;
 const TRANSFER_HEADWAY_MINUTES: Record<string, number> = {
   KMB: 8,
@@ -59,6 +60,14 @@ const TRANSFER_HEADWAY_MINUTES: Record<string, number> = {
   GMB: 10,
   MTR: 4,
 };
+
+function navigationErrorForLocationStatus(status: LocationStatus): string | null {
+  if (status === 'denied') return 'locationPermissionDenied';
+  if (status === 'timedOut') return 'locationTimedOut';
+  if (status === 'unavailable') return 'locationUnavailable';
+  if (status === 'failed') return 'locationTrackingFailed';
+  return null;
+}
 
 function calculateLiveTiming(
   phase: NavigationPhase,
@@ -194,7 +203,77 @@ function calculateLiveTiming(
   };
 }
 
-export const useNavigationStore = create<NavigationState>((set, get) => ({
+export const useNavigationStore = create<NavigationState>((set, get) => {
+  const applySample = (sample: LocationSample, expectedGeneration: number) => {
+    if (expectedGeneration !== navigationGeneration) return;
+    const position = sample.position;
+    const current = get();
+    if (!current.option || !current.destination) return;
+
+    const nowMs = sample.timestampMs || Date.now();
+    const updatedSpeed = updateWalkingSpeed(current.speed, {
+      speedMps: sample.speedMps,
+      accuracyMeters: sample.accuracyMeters,
+      timestampMs: nowMs,
+    });
+    let phase = current.phase;
+    let activeLegIndex = current.activeLegIndex;
+    const phaseStartedAtMs = current.phaseStartedAtMs || nowMs;
+    const target = resolveNavigationTarget(
+      { phase, activeLegIndex },
+      current.option.itinerary.legs,
+      current.destination
+    );
+
+    if (
+      (phase === 'walkingToTransit' || phase === 'walkingTransfer') &&
+      target &&
+      haversineMeters(position.lat, position.lng, target.lat, target.lng) <= 80
+    ) {
+      const progress = advanceNavigationProgress(
+        { phase, activeLegIndex },
+        current.option.itinerary.legs
+      );
+      phase = progress.phase;
+      activeLegIndex = progress.activeLegIndex;
+    }
+    if (
+      phase === 'walkingToDestination' &&
+      target &&
+      haversineMeters(position.lat, position.lng, target.lat, target.lng) <= 45
+    ) {
+      const progress = advanceNavigationProgress(
+        { phase, activeLegIndex },
+        current.option.itinerary.legs
+      );
+      phase = progress.phase;
+      activeLegIndex = progress.activeLegIndex;
+    }
+
+    const timing = calculateLiveTiming(
+      phase,
+      activeLegIndex,
+      phaseStartedAtMs,
+      current.option,
+      current.destination,
+      position,
+      updatedSpeed,
+      nowMs
+    );
+    set({
+      phase,
+      activeLegIndex,
+      phaseStartedAtMs,
+      currentPosition: position,
+      speed: updatedSpeed,
+      liveArrival: timing.arrival,
+      liveWaitMinutes: timing.waitMinutes,
+      liveCatchable: timing.catchable,
+      liveDepartureStatus: timing.departureStatus,
+    });
+  };
+
+  return {
   phase: 'idle',
   activeLegIndex: 0,
   phaseStartedAtMs: null,
@@ -209,8 +288,9 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
   error: null,
 
   start: async (option, destination) => {
-    subscription?.remove();
-    subscription = null;
+    unsubscribeLocation?.();
+    unsubscribeLocation = null;
+    useLocationStore.getState().stopTracking();
     const generation = ++navigationGeneration;
     const phase: NavigationPhase = 'walkingToTransit';
     const activeLegIndex = 0;
@@ -241,119 +321,17 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       error: null,
     });
 
-    try {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (generation !== navigationGeneration) return;
-      if (permission.status !== 'granted') {
-        set({ error: 'locationPermissionDenied' });
-        return;
-      }
-
-      const nextSubscription = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: 5_000,
-          distanceInterval: 5,
-        },
-        (location) => {
-          if (generation !== navigationGeneration) return;
-          const position = {
-            lat: location.coords.latitude,
-            lng: location.coords.longitude,
-          };
-          const current = get();
-          if (!current.option || !current.destination) return;
-
-          const nowMs = location.timestamp || Date.now();
-          const updatedSpeed = updateWalkingSpeed(current.speed, {
-            speedMps: location.coords.speed,
-            accuracyMeters: location.coords.accuracy,
-            timestampMs: nowMs,
-          });
-          let phase = current.phase;
-          let activeLegIndex = current.activeLegIndex;
-          let phaseStartedAtMs = current.phaseStartedAtMs || nowMs;
-          const target = resolveNavigationTarget(
-            { phase, activeLegIndex },
-            current.option.itinerary.legs,
-            current.destination
-          );
-
-          if (
-            (phase === 'walkingToTransit' || phase === 'walkingTransfer') &&
-            target &&
-            haversineMeters(
-              position.lat,
-              position.lng,
-              target.lat,
-              target.lng
-            ) <= 80
-          ) {
-            const progress = advanceNavigationProgress(
-              { phase, activeLegIndex },
-              current.option.itinerary.legs
-            );
-            phase = progress.phase;
-            activeLegIndex = progress.activeLegIndex;
-          }
-          if (
-            phase === 'walkingToDestination' &&
-            target &&
-            haversineMeters(
-              position.lat,
-              position.lng,
-              target.lat,
-              target.lng
-            ) <= 45
-          ) {
-            const progress = advanceNavigationProgress(
-              { phase, activeLegIndex },
-              current.option.itinerary.legs
-            );
-            phase = progress.phase;
-            activeLegIndex = progress.activeLegIndex;
-          }
-
-          const timing = calculateLiveTiming(
-            phase,
-            activeLegIndex,
-            phaseStartedAtMs,
-            current.option,
-            current.destination,
-            position,
-            updatedSpeed,
-            nowMs
-          );
-          set({
-            phase,
-            activeLegIndex,
-            phaseStartedAtMs,
-            currentPosition: position,
-            speed: updatedSpeed,
-            liveArrival: timing.arrival,
-            liveWaitMinutes: timing.waitMinutes,
-            liveCatchable: timing.catchable,
-            liveDepartureStatus: timing.departureStatus,
-          });
-        }
-      );
-      if (generation !== navigationGeneration) {
-        nextSubscription.remove();
-        return;
-      }
-      subscription = nextSubscription;
-    } catch {
-      if (generation !== navigationGeneration) return;
-      subscription?.remove();
-      subscription = null;
-      set({ error: 'locationTrackingFailed' });
-    }
+    unsubscribeLocation = useLocationStore.getState().subscribeSamples((sample) => applySample(sample, generation));
+    await useLocationStore.getState().startTracking();
+    if (generation !== navigationGeneration) return;
+    set({ error: navigationErrorForLocationStatus(useLocationStore.getState().status) });
   },
 
   stop: () => {
     navigationGeneration += 1;
-    subscription?.remove();
-    subscription = null;
+    unsubscribeLocation?.();
+    unsubscribeLocation = null;
+    useLocationStore.getState().stopTracking();
     set({
       phase: 'idle',
       activeLegIndex: 0,
@@ -368,6 +346,15 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       liveDepartureStatus: 'estimated',
       error: null,
     });
+  },
+
+  retryLocation: async () => {
+    const current = get();
+    if (!current.option || !current.destination) return;
+    const generation = navigationGeneration;
+    await useLocationStore.getState().retryTracking();
+    if (generation !== navigationGeneration) return;
+    set({ error: navigationErrorForLocationStatus(useLocationStore.getState().status) });
   },
 
   advancePhase: () => {
@@ -401,4 +388,5 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
       liveDepartureStatus: timing.departureStatus,
     });
   },
-}));
+  };
+});

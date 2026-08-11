@@ -86,6 +86,6 @@ export interface TransitProvider {
   fetchRoutes(): Promise<Route[]>;
   fetchStops(): Promise<Stop[]>;
   fetchRouteStops(route: string, bound: 'O' | 'I', routeVariant?: string): Promise<RouteStopLink[]>;
-  fetchETA(stopId: string, route: string): Promise<ETA[]>;
+  fetchETA(stopId: string, route: string, routeVariant?: string): Promise<ETA[]>;
   fetchTopology?(): Promise<ProviderTopology>;
 }

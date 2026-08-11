@@ -71,10 +71,12 @@ export default function ETAScreen() {
     const stopId = initialStopId || stopList[0].stop;
     const stop = getStopById(stopId);
     if (!stop) return;
-    if (isRouteFavorited(routeId, bound, stopId)) {
-      removeRoute(routeId, bound, stopId);
+    const identity = { provider: 'KMB' as const, route: routeId, bound, stopId, serviceType };
+    if (isRouteFavorited(identity)) {
+      removeRoute(identity);
     } else {
       addRoute({
+        provider: 'KMB',
         route: routeId,
         bound,
         stopId,
@@ -98,9 +100,13 @@ export default function ETAScreen() {
               onPress={handleToggleRouteFav}
             >
               {isRouteFavorited(
-                routeId,
-                bound,
-                initialStopId || stopList[0]?.stop || ''
+                {
+                  provider: 'KMB',
+                  route: routeId,
+                  bound,
+                  stopId: initialStopId || stopList[0]?.stop || '',
+                  serviceType,
+                }
               )
                 ? '★'
                 : '☆'}

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
-import { useLocationStore } from '@/src/stores/locationStore';
+import { isUsableLocationSample, useLocationStore } from '@/src/stores/locationStore';
 import { useRouteStore } from '@/src/stores/routeStore';
 import { fetchStopETA, type Stop } from '@/src/services/kmbAPI';
 import {
@@ -35,33 +35,35 @@ export default function NearbyScreen() {
   const isEN = i18n.language === 'en';
   const router = useRouter();
   const {
-    position,
-    permissionGranted,
+    latestSample,
+    requestError,
     loading,
-    requestPermission,
-    getPosition,
+    locateOnce,
+    retryLocate: retry,
   } = useLocationStore();
   const { stops, loadRouteData } = useRouteStore();
   const [routesByStop, setRoutesByStop] = useState<Record<string, NearbyRouteAction[]>>({});
+  const usableSample = isUsableLocationSample(latestSample) ? latestSample : null;
 
   useEffect(() => {
     void loadRouteData();
   }, [loadRouteData]);
 
-  useEffect(() => {
-    if (permissionGranted) void getPosition();
-  }, [permissionGranted, getPosition]);
-
   const nearbyStops = useMemo<Array<Stop & { distance: number }>>(() => {
-    if (!position) return [];
+    if (!usableSample) return [];
     return stops
       .map((stop) => ({
         ...stop,
-        distance: haversine(position.lat, position.lng, stop.lat, stop.long),
+        distance: haversine(
+          usableSample.position.lat,
+          usableSample.position.lng,
+          stop.lat,
+          stop.long
+        ),
       }))
       .sort((a, b) => a.distance - b.distance)
       .slice(0, 10);
-  }, [stops, position]);
+  }, [stops, usableSample]);
 
   const nearbyStopKey = nearbyStops.map((stop) => stop.stop).join(',');
 
@@ -98,18 +100,31 @@ export default function NearbyScreen() {
     };
   }, [nearbyStopKey]);
 
-  if (!permissionGranted) {
+  const locationFailed = requestError !== null;
+
+  if (locationFailed && !loading) {
     return (
       <View style={styles.center}>
-        <Text style={styles.message}>{t('nearby.permissionDenied')}</Text>
-        <Pressable style={styles.button} onPress={requestPermission}>
-          <Text style={styles.buttonText}>{t('nearby.grantPermission')}</Text>
+        <Text style={styles.message}>{t(`location.errors.${requestError}`)}</Text>
+        <Pressable style={styles.button} onPress={() => void retry()}>
+          <Text style={styles.buttonText}>{t('common.retry')}</Text>
         </Pressable>
       </View>
     );
   }
 
-  if (loading || !position) {
+  if (!usableSample && !loading) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.message}>{t('nearby.locationPrompt')}</Text>
+        <Pressable style={styles.button} onPress={() => void locateOnce()}>
+          <Text style={styles.buttonText}>{t('nearby.findNearby')}</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (loading || !usableSample) {
     return (
       <View style={styles.center}>
         <Text style={styles.message}>{t('nearby.loading')}</Text>

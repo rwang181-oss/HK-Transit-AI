@@ -1,49 +1,34 @@
 # Project Status
 
-## Current web release
+## Current web review (unreleased)
 
-The mobile performance and journey-flow update now includes:
+The web-review branch provides the following pending owner approval; this is not a published `2.0.2` release, and the application/package version remains `2.0.0`:
 
-- Mobile viewport and safe-area handling without manual page zooming
-- 16 px journey inputs to prevent iPhone Safari focus zoom
-- Always-visible route-search action outside the scrollable content
-- Optional, high-DPI web maps that load only after the user expands them
-- Results-first journey screen with compact preference filters and route cards
-- Route selection that immediately expands the itinerary steps
-- Dedicated live-navigation modal with location permission and tracking errors
-- Cached and deduplicated public-data requests with request timeouts
-- Bounded realtime ETA enrichment instead of unbounded parallel calls
-- Cached route and stop indexes with immediate stale data display during refresh
-- Nearby-stop route discovery using only the ten nearest stop ETA endpoints
-- Shared Expo/TypeScript architecture preserved for native iOS work
+- Exact public route-number ranking, deterministic provider order, and one provider-neutral route-detail destination for search and saved-route cards.
+- Saved-route provider/boarding-stop persistence, including migration of version-1 saved KMB entries without data loss.
+- Explicit, retryable browser-location states and one shared foreground location watcher for nearby search and live journeys.
+- A live-journey modal with current location, destination, honest routed-versus-estimated walking treatment, and journey-progress updates. It does not claim background tracking, vehicle tracking, or voice turn-by-turn navigation.
+- Leaflet map initialization once per mount, stable marker/path reconciliation, drag-to-disable-follow, and an explicit recenter control.
+- A static GitHub Pages export under `/HK-Transit-AI` with five generated journey-index shards, `.nojekyll`, `version.json`, and an SPA `404.html` fallback.
 
 ## Verification in this environment
 
-- 25 dependency-free behavioural core tests
-- Offline structural TypeScript validation
-- TS/TSX syntax parsing
-- Translation-key parity and JSON validation
-- JavaScript syntax validation
-- Mobile UX source-contract verification
-- Handoff structure verification
+On 2026-08-11 (Node `v24.18.0`, npm `11.16.0`), `npm run verify` exited `0`: journey-index generation/validation reported 8,769 hubs, 3,189 routes, and 483 cells; provider coverage was KMB 1,317, CTB 688, GMB 1,160, and MTR 24. It also passed 25 dependency-free core checks, Jest's 17 suites/72 tests, TypeScript, source/translation parity, mobile UX, and handoff validation.
 
-The full Expo web export is verified by the GitHub Actions deployment workflow because the preparation container cannot reliably install the complete dependency tree from its internal package mirror.
+`npm run build:web` also exited `0`, exported 898 modules, and produced the Pages-path and journey-index artifacts described above. The only build output warning was Node reporting that `NO_COLOR` was ignored because `FORCE_COLOR` was set.
+
+`npm run data:refresh` was intentionally stopped after upstream GMB route-stop requests returned HTTP 403 responses; no partial refreshed snapshot was accepted. The retained `src/data/gmb.json` is schema version 2 and has 1,161 routes plus 13,101 route-stop records, with no missing `sourceRouteId`, `routeSeq`, or `stopSeq` values.
 
 ## iOS readiness boundary
 
-The repository remains suitable for an iOS production track: it has an Expo Router application, `com.rwang181.hktransitai`, foreground location permission text, EAS preview/production profiles, shared platform-neutral journey stores and a native Apple Maps fallback. A future App Store submission still requires Apple Developer signing, a native MapKit adapter, physical-device testing, privacy/support URLs, screenshots and App Review. This codebase preserves that route but cannot guarantee Apple's approval.
+The repository retains the shared Expo Router/TypeScript route, `com.rwang181.hktransitai`, foreground-location permission text, EAS profiles, and a native map fallback. **Do not start the iOS implementation/release phase until the owner approves the web preview.** After that approval, iOS still requires an Apple Maps adapter, physical-device testing, Apple Developer signing, privacy/support URLs, screenshots, and App Review; no Apple approval is implied.
 
 ## Recommended acceptance checks
 
 Test on at least one iPhone-sized browser and one desktop browser:
 
-- Open the journey tab and confirm the map does not load until expanded
-- Focus both inputs and confirm the page does not zoom or overflow horizontally
-- Confirm the route-search button is visible without scrolling
-- Search an address before route data finishes loading
-- Open results and confirm route cards appear before the optional map
-- Tap a route and confirm its steps expand
-- Start a route and confirm the live-navigation modal opens immediately
-- Deny location once and confirm the error appears in the modal
-- Open Nearby and confirm stop cards appear without downloading the full route-stop network
-- Check KMB, Citybus, GMB and MTR candidate journeys on normal and weak networks
+- Search an exact route code and a prefix; confirm the exact public code ranks first and provider badges are correct.
+- Open a saved route and a search result for the same route; confirm both reach the same detail screen and the saved stop is expanded for ETA.
+- Exercise location denied, timed-out/unavailable, retry, and live tracking states; confirm the app does not request permission before an explicit location action.
+- Start a journey, drag the map, then tap Recenter; confirm a later foreground GPS sample resumes following.
+- Check KMB, Citybus, GMB, and MTR journeys on normal and weak networks, including the stated estimated/offline fallbacks.

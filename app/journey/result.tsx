@@ -67,6 +67,7 @@ export default function JourneyResultScreen() {
     toName: string;
   }>();
   const startNavigation = useNavigationStore((state) => state.start);
+  const stopNavigation = useNavigationStore((state) => state.stop);
   const navigationPhase = useNavigationStore((state) => state.phase);
   const navigationError = useNavigationStore((state) => state.error);
 
@@ -94,6 +95,10 @@ export default function JourneyResultScreen() {
   const [navigationVisible, setNavigationVisible] = useState(false);
   const [startingNavigation, setStartingNavigation] = useState(false);
   const generationRef = useRef(0);
+
+  useEffect(() => () => {
+    stopNavigation();
+  }, [stopNavigation]);
 
   useEffect(() => {
     const generation = ++generationRef.current;
@@ -244,15 +249,16 @@ export default function JourneyResultScreen() {
   };
 
   const mapPoints = selected
-    ? selected.geometry.map((point) => ({
+    ? selected.geometry.map((point, index) => ({
+        id: `${selected.id}:point:${index}`,
         lat: point.lat,
         lng: point.lng,
         label: point.label,
         kind: point.kind === 'walk' ? 'stop' as const : point.kind,
       }))
     : [
-        { ...fromPoint, kind: 'start' as const },
-        { ...toPoint, kind: 'end' as const },
+        { id: 'journey-start', ...fromPoint, kind: 'start' as const },
+        { id: 'journey-end', ...toPoint, kind: 'end' as const },
       ];
 
   const center = selected

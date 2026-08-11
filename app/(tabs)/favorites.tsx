@@ -28,7 +28,7 @@ export default function FavoritesScreen() {
     },
     ...favoriteRoutes.map((fr) => ({
       type: 'route' as const,
-      key: `route-${fr.route}-${fr.bound}-${fr.stopId}`,
+      key: `route-${fr.provider}-${fr.route}-${fr.bound}-${fr.routeVariant || ''}-${fr.stopId}`,
       data: fr,
     })),
     {
@@ -72,11 +72,16 @@ export default function FavoritesScreen() {
               key={item.key}
               favorite={item.data}
               etas={etaCache[key] || []}
-              onPress={() =>
-                router.push(
-                  `/eta/${item.data.route}?bound=${item.data.bound}&stopId=${item.data.stopId}&serviceType=${item.data.serviceType}`
-                )
-              }
+              onPress={() => {
+                const params = new URLSearchParams({
+                  provider: item.data.provider,
+                  route: item.data.route,
+                  bound: item.data.bound,
+                  stopId: item.data.stopId,
+                });
+                if (item.data.routeVariant) params.set('variant', item.data.routeVariant);
+                router.push(`/route-detail?${params.toString()}` as never);
+              }}
             />
           );
         }

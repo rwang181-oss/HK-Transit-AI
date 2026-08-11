@@ -25,6 +25,7 @@ export function LiveJourneyPanel({ embedded = false }: { embedded?: boolean }) {
     liveDepartureStatus,
     error,
     stop,
+    retryLocation,
     advancePhase,
   } = useNavigationStore();
 
@@ -32,6 +33,9 @@ export function LiveJourneyPanel({ embedded = false }: { embedded?: boolean }) {
     return (
       <View style={[styles.panel, embedded && styles.panelEmbedded, styles.errorPanel]}>
         <Text style={styles.error}>{t(`navigation.errors.${error}`)}</Text>
+        <Pressable style={styles.retryButton} onPress={() => void retryLocation()}>
+          <Text style={styles.retryText}>{t('common.retry')}</Text>
+        </Pressable>
         <Pressable style={styles.dismissButton} onPress={stop}>
           <Text style={styles.dismissText}>{t('common.cancel')}</Text>
         </Pressable>
@@ -89,7 +93,14 @@ export function LiveJourneyPanel({ embedded = false }: { embedded?: boolean }) {
         </View>
       ) : null}
 
-      {error ? <Text style={styles.error}>{t(`navigation.errors.${error}`)}</Text> : null}
+      {error ? (
+        <View style={styles.inlineErrorRow}>
+          <Text style={styles.error}>{t(`navigation.errors.${error}`)}</Text>
+          <Pressable onPress={() => void retryLocation()}>
+            <Text style={styles.retryText}>{t('common.retry')}</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <View style={styles.actions}>
         {phase !== 'arrived' ? (
@@ -136,6 +147,9 @@ const styles = StyleSheet.create({
   departureStatus: { color: '#9FB3C8', fontSize: 10, marginTop: 4 },
   adjustedDeparture: { color: '#FEC84B', fontSize: 11, lineHeight: 16, marginTop: 7 },
   error: { color: '#FDA29B', fontSize: 12, marginTop: 10 },
+  inlineErrorRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 2 },
+  retryButton: { borderRadius: 10, backgroundColor: '#FFFFFF', paddingHorizontal: 12, paddingVertical: 8 },
+  retryText: { color: '#B42318', fontSize: 12, fontWeight: '700' },
   actions: { flexDirection: 'row', gap: 10, marginTop: 16 },
   advanceButton: { flex: 1.2, borderRadius: 13, minHeight: 42, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
   advanceText: { color: COLORS.ink, fontSize: 13, fontWeight: '700' },

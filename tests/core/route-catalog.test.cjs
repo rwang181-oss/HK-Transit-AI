@@ -30,6 +30,46 @@ const loadProvider = async (id) => ({ id, fetchRoutes: async () => routes[id] })
   assert.equal(eal.find((entry) => entry.routeVariant === 'LMC-UT').dest_en, 'Lok Ma Chau');
   assert.equal(eal.find((entry) => entry.routeVariant === 'LMC-DT').orig_en, 'Lok Ma Chau');
 
+  const ranked = catalog.searchRouteCatalog([
+    {
+      provider: 'CTB', route: '12', bound: 'O', publicRoute: '12', key: 'CTB:12:O',
+      searchableText: '12 HARBOUR', orig_en: 'A', orig_tc: '甲', dest_en: 'B', dest_tc: '乙',
+    },
+    {
+      provider: 'CTB', route: 'SERVICE-A', bound: 'O', publicRoute: 'A1A', key: 'CTB:SERVICE-A:O',
+      searchableText: 'A1A SERVICE-A HARBOUR', orig_en: 'A', orig_tc: '甲', dest_en: 'B', dest_tc: '乙',
+    },
+    {
+      provider: 'MTR', route: 'LINE-1', bound: 'O', publicRoute: 'EAL', key: 'MTR:LINE-1:O',
+      searchableText: 'EAL LINE-1 ADMIRALTY', orig_en: 'A', orig_tc: '甲', dest_en: 'B', dest_tc: '乙',
+    },
+    {
+      provider: 'GMB', route: '7', bound: 'O', publicRoute: '7', key: 'GMB:7:O',
+      searchableText: '7 CENTRAL 1 TERMINUS', orig_en: 'Central 1', orig_tc: '甲', dest_en: 'B', dest_tc: '乙',
+    },
+    {
+      provider: 'KMB', route: '1', bound: 'O', publicRoute: '1', key: 'KMB:1:O',
+      searchableText: '1 KOWLOON', orig_en: 'A', orig_tc: '甲', dest_en: 'B', dest_tc: '乙',
+    },
+  ], '1', 20);
+  assert.deepEqual(
+    ranked.map((entry) => entry.key),
+    ['KMB:1:O', 'CTB:12:O', 'CTB:SERVICE-A:O', 'MTR:LINE-1:O', 'GMB:7:O'],
+    'exact public codes must precede public-code prefixes, public-code substrings, internal-code matches, and text matches'
+  );
+
+  const exactTies = catalog.searchRouteCatalog([
+    { provider: 'MTR', route: '1', bound: 'O', publicRoute: '1', key: 'MTR:1:O', searchableText: '1', orig_en: 'A', orig_tc: '甲', dest_en: 'B', dest_tc: '乙' },
+    { provider: 'GMB', route: '1', bound: 'O', publicRoute: '1', key: 'GMB:1:O', searchableText: '1', orig_en: 'A', orig_tc: '甲', dest_en: 'B', dest_tc: '乙' },
+    { provider: 'CTB', route: '1', bound: 'O', publicRoute: '1', key: 'CTB:1:O', searchableText: '1', orig_en: 'A', orig_tc: '甲', dest_en: 'B', dest_tc: '乙' },
+    { provider: 'KMB', route: '1', bound: 'O', publicRoute: '1', key: 'KMB:1:O', searchableText: '1', orig_en: 'A', orig_tc: '甲', dest_en: 'B', dest_tc: '乙' },
+  ], '1', 20);
+  assert.deepEqual(
+    exactTies.map((entry) => entry.provider),
+    ['KMB', 'CTB', 'GMB', 'MTR'],
+    'identically ranked routes must use the documented provider order'
+  );
+
   const partial = await catalog.loadRouteCatalog(async (id) => {
     if (id === 'CTB') throw new Error('offline');
     return loadProvider(id);
