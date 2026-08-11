@@ -16,7 +16,7 @@
     "test:core": "node scripts/run-core-tests.cjs",
     "verify:source": "node scripts/verify-source.cjs",
     "verify:handoff": "node scripts/verify-handoff.cjs",
-    "verify": "npm run build:journey-index && npm run verify:journey-index && npm run test:core && npm run verify:types && npm run verify:source && npm run verify:mobile && npm run verify:handoff",
+    "verify": "npm run build:journey-index && npm run verify:journey-index && npm run test:core && npm test -- --runInBand && npm run verify:types && npm run verify:source && npm run verify:mobile && npm run verify:handoff",
     "data:refresh": "node scripts/fetch-transit-data.js",
     "verify:types": "node scripts/verify-types.cjs",
     "verify:mobile": "node scripts/verify-mobile-ux.cjs"
