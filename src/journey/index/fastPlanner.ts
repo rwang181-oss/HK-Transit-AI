@@ -1,4 +1,4 @@
-import type { ProviderId } from '@/src/journey/providers/types';
+import { getRouteServiceKey, type ProviderId } from '../providers/types';
 import type { JourneyMode, JourneyPolicy } from '@/src/journey/model/types';
 import { haversineMeters } from '../graph/travelTime';
 import { applyJourneyPolicy } from '../planner/routePolicies';
@@ -163,6 +163,7 @@ function rideLeg(
     provider: route.provider,
     route: route.route,
     bound: route.bound,
+    routeVariant: route.routeVariant,
     fromHubId: fromHub.id,
     toHubId: toHub.id,
     fromName: fromHub.name_en,
@@ -294,7 +295,6 @@ function candidateToOption(
   const rideMinutesValue = candidate.rideMinutes;
   const totalMinutes = Math.round(walkingMinutes + rideMinutesValue + waitMin + transferWaitMinutes);
   const nowMs = Date.now();
-  const routeParts = candidate.routeKeys[0].split(':') as [ProviderId, string, 'O' | 'I'];
   const boardStopId = candidate.boardHub.members.find((member) => member.provider === firstLeg.provider)?.stopId || '';
   const geometry = [
     { lat: from.lat, lng: from.lng, kind: 'start' as const, label: from.name },
@@ -336,9 +336,10 @@ function candidateToOption(
       legs: candidate.legs,
     },
     boardStopId,
-    boardProvider: routeParts[0],
-    boardRoute: routeParts[1],
-    boardBound: routeParts[2],
+    boardProvider: firstLeg.provider,
+    boardRoute: firstLeg.route,
+    boardBound: firstLeg.bound,
+    boardRouteVariant: firstLeg.routeVariant,
     boardHub: candidate.boardHub,
     alightHub: candidate.alightHub,
     geometry,
@@ -352,7 +353,7 @@ function candidateToOption(
 function serviceSequence(option: IndexedJourneyOption): string {
   return option.itinerary.legs
     .filter((leg) => leg.kind === 'ride')
-    .map((leg) => `${leg.provider}:${leg.route}:${leg.bound}`)
+    .map((leg) => getRouteServiceKey(leg.provider, leg.route, leg.bound, leg.routeVariant))
     .join('>');
 }
 

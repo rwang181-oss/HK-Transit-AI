@@ -1,8 +1,9 @@
+import { getRouteServiceKey } from '../providers/types';
 import type {
   RouteStopLink,
   Stop,
   ProviderId,
-} from '@/src/journey/providers/types';
+} from '../providers/types';
 import type { StopHub } from './stopMerger';
 import { mergeStops, buildLookups } from './stopMerger';
 import { estimateLegMinutes, estimateWalkMinutes, haversineMeters } from './travelTime';
@@ -14,6 +15,7 @@ export interface Edge {
   provider: ProviderId;
   route: string;
   bound: 'O' | 'I';
+  routeVariant?: string;
   kind: 'ride' | 'transfer';
 }
 
@@ -56,7 +58,7 @@ export function buildGraph(
   // 1. Ride edges from route-stop sequences
   const byRoute = new Map<string, RouteStopLink[]>();
   for (const rs of routeLinks) {
-    const key = `${rs.provider}:${rs.route}:${rs.bound}`;
+    const key = getRouteServiceKey(rs.provider, rs.route, rs.bound, rs.routeVariant);
     if (!byRoute.has(key)) byRoute.set(key, []);
     byRoute.get(key)!.push(rs);
   }
@@ -83,6 +85,7 @@ export function buildGraph(
         provider: a.provider,
         route: a.route,
         bound: a.bound,
+        routeVariant: a.routeVariant,
         kind: 'ride',
       });
     }

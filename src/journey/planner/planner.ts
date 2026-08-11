@@ -1,9 +1,11 @@
 import type { Graph, Edge } from '@/src/journey/graph/graphBuilder';
+import { getRouteServiceKey } from '../providers/types';
 
 export interface ItineraryLeg {
   provider: string;
   route: string;
   bound: 'O' | 'I';
+  routeVariant?: string;
   fromHubId: string;
   toHubId: string;
   fromName: string;
@@ -79,7 +81,9 @@ interface PrevEntry {
 }
 
 function serviceKeyFor(edge: Edge): string {
-  return edge.kind === 'ride' ? `${edge.provider}:${edge.route}:${edge.bound}` : '';
+  return edge.kind === 'ride'
+    ? getRouteServiceKey(edge.provider, edge.route, edge.bound, edge.routeVariant)
+    : '';
 }
 
 function stateKey(hubId: string, serviceKey: string, transfers: number): string {
@@ -154,6 +158,7 @@ export function planJourney(
       provider: entry.edge.provider,
       route: entry.edge.route,
       bound: entry.edge.bound,
+      routeVariant: entry.edge.routeVariant,
       fromHubId: fromHubIdForLeg,
       toHubId: entry.edge.to,
       fromName: fromHub.name_en,
@@ -176,7 +181,8 @@ export function planJourney(
       last?.kind === 'ride' &&
       last.route === leg.route &&
       last.provider === leg.provider &&
-      last.bound === leg.bound
+      last.bound === leg.bound &&
+      last.routeVariant === leg.routeVariant
     ) {
       last.toHubId = leg.toHubId;
       last.toName = leg.toName;

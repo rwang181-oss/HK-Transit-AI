@@ -1,6 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
-import type { Stop, RouteStopLink, ProviderId } from '@/src/journey/providers/types';
+import {
+  getRouteServiceKey,
+  parseRouteServiceKey,
+  type Stop,
+  type RouteStopLink,
+  type ProviderId,
+} from '../journey/providers/types';
 import { getProvider, getStaticProviders } from '@/src/journey/providers';
 import type { StopHub } from '@/src/journey/graph/stopMerger';
 import type { Edge, Graph } from '@/src/journey/graph/graphBuilder';
@@ -79,6 +85,7 @@ export interface JourneyOption {
   boardStopId: string;
   boardRoute: string;
   boardBound: 'O' | 'I';
+  boardRouteVariant?: string;
   boardProvider: ProviderId;
   boardHub: StopHub;
   alightHub: StopHub;
@@ -181,7 +188,7 @@ async function loadKmbData(): Promise<{ stops: Stop[]; links: RouteStopLink[]; w
 async function loadStaticProvider(provider: Awaited<ReturnType<typeof getStaticProviders>>[number]) {
   if (provider.fetchTopology) return provider.fetchTopology();
   const [stops, routes] = await Promise.all([provider.fetchStops(), provider.fetchRoutes()]);
-  const nested = await Promise.all(routes.map((route) => provider.fetchRouteStops(route.route, route.bound)));
+  const nested = await Promise.all(routes.map((route) => provider.fetchRouteStops(route.route, route.bound, route.routeVariant)));
   return { stops, links: nested.flat() };
 }
 
@@ -201,7 +208,7 @@ function buildRouteIndexes(graph: Graph) {
   const routeEdges = new Map<string, Map<string, Edge>>();
   for (const edge of graph.edges) {
     if (edge.kind !== 'ride') continue;
-    const key = `${edge.provider}:${edge.route}:${edge.bound}`;
+    const key = getRouteServiceKey(edge.provider, edge.route, edge.bound, edge.routeVariant);
     const routes = hubRoutes.get(edge.from) || [];
     if (!routes.includes(key)) routes.push(key);
     hubRoutes.set(edge.from, routes);
@@ -293,7 +300,7 @@ function buildTransferCandidates(
         boardHub,
         alightHub,
         rideMinutes: itinerary.totalMinutes,
-        routeKey: `${firstRide.provider}:${firstRide.route}:${firstRide.bound}`,
+        routeKey: getRouteServiceKey(firstRide.provider, firstRide.route, firstRide.bound, firstRide.routeVariant),
         walkToMinutes,
         walkFromMinutes,
         walkToMeters,
@@ -346,7 +353,7 @@ async function fetchDepartureEstimate(
 
 function itineraryForCandidate(candidate: RawCandidate): Itinerary {
   if (!candidate.isDirect) return candidate.itinerary!;
-  const [provider, route, bound] = candidate.routeKey.split(':');
+  const { provider, route, bound, routeVariant } = parseRouteServiceKey(candidate.routeKey);
   return {
     totalMinutes: Math.round(candidate.rideMinutes),
     transfers: 0,
@@ -355,6 +362,7 @@ function itineraryForCandidate(candidate: RawCandidate): Itinerary {
       provider,
       route,
       bound: bound as 'O' | 'I',
+      routeVariant,
       fromHubId: candidate.boardHub.id,
       toHubId: candidate.alightHub.id,
       fromName: candidate.boardHub.name_en,
@@ -444,9 +452,7 @@ function buildOption(
   const waitAtStationMinutes = waitAfterWalking(departure.minutes, walkTo.minutes);
   const walkingMeters = Math.round(walkTo.meters + walkFrom.meters + transferMinutes * 70);
   const totalMinutes = Math.round(walkingMinutes + waitAtStationMinutes + rideMinutes + transferWaitMinutes);
-  const [providerValue, route, boundValue] = candidate.routeKey.split(':');
-  const provider = providerValue as ProviderId;
-  const bound = boundValue as 'O' | 'I';
+  const { provider, route, bound, routeVariant } = parseRouteServiceKey(candidate.routeKey);
   const member = candidate.boardHub.members.find((item) => item.provider === provider);
   const rideMinutesByProvider: Partial<Record<ProviderId, number>> = {};
   for (const leg of itinerary.legs) {
@@ -454,7 +460,7 @@ function buildOption(
     const key = leg.provider as ProviderId;
     rideMinutesByProvider[key] = (rideMinutesByProvider[key] || 0) + leg.minutes;
   }
-  const id = `option-${provider}-${route}-${candidate.boardHub.id}-${candidate.alightHub.id}-${index}`;
+  const id = `option-${provider}-${route}-${routeVariant || 'ordinary'}-${candidate.boardHub.id}-${candidate.alightHub.id}-${index}`;
   const comfortInput = {
     id,
     totalMinutes,
@@ -504,6 +510,7 @@ function buildOption(
     boardStopId: member?.stopId || '',
     boardRoute: route,
     boardBound: bound,
+    boardRouteVariant: routeVariant,
     boardProvider: provider,
     boardHub: candidate.boardHub,
     alightHub: candidate.alightHub,
@@ -620,7 +627,7 @@ export const useJourneyStore = create<JourneyState>((set, get) => ({
     const candidates = retainCandidatePools([...direct, ...transfer]);
 
     const options = await mapWithConcurrency(candidates, ETA_CONCURRENCY, async (candidate, index) => {
-      const [provider, route, bound] = candidate.routeKey.split(':') as [ProviderId, string, 'O' | 'I'];
+      const { provider, route, bound } = parseRouteServiceKey(candidate.routeKey);
       const [walkTo, walkFrom] = await Promise.all([
         walkingRouter.route(from, candidate.boardHub),
         walkingRouter.route(candidate.alightHub, to),

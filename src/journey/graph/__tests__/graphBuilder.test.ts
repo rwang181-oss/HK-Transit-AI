@@ -16,9 +16,10 @@ function link(
   route: string,
   bound: 'O' | 'I',
   seq: number,
-  stopId: string
+  stopId: string,
+  routeVariant?: string
 ): RouteStopLink {
-  return { provider, route, bound, seq, stopId };
+  return { provider, route, bound, seq, stopId, routeVariant };
 }
 
 describe('buildGraph', () => {
@@ -77,5 +78,43 @@ describe('buildGraph', () => {
     ];
     const g = buildGraph(stops, links);
     expect(g.edges.filter((e) => e.kind === 'ride')).toHaveLength(0);
+  });
+
+  it('keeps MTR ordinary and branch directions as separate services', () => {
+    const stops: Stop[] = [
+      stop('MTR', 'ADM', 'Admiralty', 22.279, 114.165),
+      stop('MTR', 'SHS', 'Sheung Shui', 22.501, 114.127),
+      stop('MTR', 'LOW', 'Lo Wu', 22.528, 114.114),
+      stop('MTR', 'LMC', 'Lok Ma Chau', 22.526, 114.063),
+    ];
+    const links: RouteStopLink[] = [
+      link('MTR', 'EAL', 'O', 1, 'ADM'),
+      link('MTR', 'EAL', 'O', 2, 'SHS'),
+      link('MTR', 'EAL', 'O', 3, 'LOW'),
+      link('MTR', 'EAL', 'O', 1, 'ADM', 'LMC-UT'),
+      link('MTR', 'EAL', 'O', 2, 'SHS', 'LMC-UT'),
+      link('MTR', 'EAL', 'O', 3, 'LMC', 'LMC-UT'),
+    ];
+
+    const graph = buildGraph(stops, links);
+    const hubId = (stopId: string) => graph.hubs.find((hub) =>
+      hub.members.some((member) => member.provider === 'MTR' && member.stopId === stopId)
+    )!.id;
+    const rideEdges = graph.edges.filter((edge) => edge.kind === 'ride');
+    expect(rideEdges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ route: 'EAL', bound: 'O', routeVariant: undefined }),
+      expect.objectContaining({ route: 'EAL', bound: 'O', routeVariant: 'LMC-UT' }),
+    ]));
+    expect(rideEdges.filter((edge) => edge.routeVariant === undefined)).toHaveLength(2);
+    expect(rideEdges.filter((edge) => edge.routeVariant === 'LMC-UT')).toHaveLength(2);
+
+    expect(rideEdges
+      .filter((edge) => edge.routeVariant === undefined)
+      .map((edge) => `${edge.from}->${edge.to}`))
+      .toEqual([`${hubId('ADM')}->${hubId('SHS')}`, `${hubId('SHS')}->${hubId('LOW')}`]);
+    expect(rideEdges
+      .filter((edge) => edge.routeVariant === 'LMC-UT')
+      .map((edge) => `${edge.from}->${edge.to}`))
+      .toEqual([`${hubId('ADM')}->${hubId('SHS')}`, `${hubId('SHS')}->${hubId('LMC')}`]);
   });
 });

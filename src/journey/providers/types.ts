@@ -54,6 +54,33 @@ export interface ProviderTopology {
   links: RouteStopLink[];
 }
 
+/** Stable internal service identity; the fourth segment is present only for variants. */
+export function getRouteServiceKey(
+  provider: ProviderId | string,
+  route: string,
+  bound: 'O' | 'I',
+  routeVariant?: string
+): string {
+  return routeVariant
+    ? `${provider}:${route}:${bound}:${routeVariant}`
+    : `${provider}:${route}:${bound}`;
+}
+
+export function parseRouteServiceKey(routeKey: string): {
+  provider: ProviderId;
+  route: string;
+  bound: 'O' | 'I';
+  routeVariant?: string;
+} {
+  const [provider, route, bound, routeVariant] = routeKey.split(':');
+  return {
+    provider: provider as ProviderId,
+    route,
+    bound: bound as 'O' | 'I',
+    routeVariant: routeVariant || undefined,
+  };
+}
+
 export interface TransitProvider {
   id: ProviderId;
   fetchRoutes(): Promise<Route[]>;

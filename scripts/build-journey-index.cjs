@@ -113,10 +113,17 @@ function normalizeLink(provider, raw) {
 
 function routeKeyForLink(link) {
   const routeKey = `${link.provider}:${link.route}:${link.bound}`;
+  const routeVariant = routeVariantForLink(link);
+  return routeVariant
+    ? `${routeKey}:${routeVariant}`
+    : routeKey;
+}
+
+function routeVariantForLink(link) {
   const ordinaryDirection = link.bound === 'I' ? 'DT' : 'UT';
   return link.provider === 'MTR' && link.direction && link.direction !== ordinaryDirection
-    ? `${routeKey}:${link.direction}`
-    : routeKey;
+    ? link.direction
+    : undefined;
 }
 
 function topologyFromSnapshot(provider, payload) {
@@ -267,6 +274,7 @@ function buildJourneyIndex(topologies, options = {}) {
       provider: first.provider,
       route: first.route,
       bound: first.bound,
+      routeVariant: routeVariantForLink(first),
       hubs: hubIds,
       cumulativeMinutes,
     };

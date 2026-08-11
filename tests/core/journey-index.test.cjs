@@ -94,6 +94,8 @@ assert.deepEqual(mtrIndex.routes['MTR:EAL:I'].hubs, ['hub-low', 'hub-shs', 'hub-
 assert.deepEqual(mtrIndex.routes['MTR:EAL:I:LMC-DT'].hubs, ['hub-lmc', 'hub-shs', 'hub-adm']);
 assert.deepEqual(mtrIndex.routes['MTR:EAL:O'].hubs, ['hub-adm', 'hub-shs', 'hub-low']);
 assert.deepEqual(mtrIndex.routes['MTR:EAL:O:LMC-UT'].hubs, ['hub-adm', 'hub-shs', 'hub-lmc']);
+assert.equal(mtrIndex.routes['MTR:EAL:I:LMC-DT'].routeVariant, 'LMC-DT');
+assert.equal(mtrIndex.routes['MTR:EAL:O:LMC-UT'].routeVariant, 'LMC-UT');
 for (const [routeKey, bound] of [
   ['MTR:EAL:I', 'I'],
   ['MTR:EAL:I:LMC-DT', 'I'],

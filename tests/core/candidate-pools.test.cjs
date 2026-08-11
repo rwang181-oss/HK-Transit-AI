@@ -117,6 +117,38 @@ test('duplicate route sequences retain the quickest boarding pair variant', () =
   assert.equal(retained[0].roughMinutes, 30);
 });
 
+test('direct route discovery keeps MTR branch endpoints out of the ordinary service', () => {
+  const mtrHub = (id, lat, lng) => ({
+    id,
+    name_en: id,
+    name_tc: id,
+    name_sc: id,
+    lat,
+    lng,
+    members: [{ stopId: id, provider: 'MTR', name_en: id, name_tc: id, name_sc: id, lat, lng }],
+  });
+  const adm = mtrHub('ADM', 22.279, 114.165);
+  const shs = mtrHub('SHS', 22.501, 114.127);
+  const low = mtrHub('LOW', 22.528, 114.114);
+  const lmc = mtrHub('LMC', 22.526, 114.063);
+  const hubs = [adm, shs, low, lmc];
+  const graph = {
+    hubs,
+    edges: [
+      { from: 'ADM', to: 'SHS', weight: 10, provider: 'MTR', route: 'EAL', bound: 'O', kind: 'ride' },
+      { from: 'SHS', to: 'LOW', weight: 10, provider: 'MTR', route: 'EAL', bound: 'O', kind: 'ride' },
+      { from: 'ADM', to: 'SHS', weight: 10, provider: 'MTR', route: 'EAL', bound: 'O', routeVariant: 'LMC-UT', kind: 'ride' },
+      { from: 'SHS', to: 'LMC', weight: 10, provider: 'MTR', route: 'EAL', bound: 'O', routeVariant: 'LMC-UT', kind: 'ride' },
+    ],
+    adjacency: new Map(),
+    hubById: new Map(hubs.map((item) => [item.id, item])),
+  };
+  const discovered = pools.discoverDirectRouteCandidates(graph, [adm], { lat: lmc.lat, lng: lmc.lng }, 1_200);
+  assert.deepEqual(discovered.map((item) => [item.routeKey, item.alightHub.id]), [
+    ['MTR:EAL:O:LMC-UT', 'LMC'],
+  ]);
+});
+
 (async () => {
   for (const { name, fn } of tests) {
     await fn();
