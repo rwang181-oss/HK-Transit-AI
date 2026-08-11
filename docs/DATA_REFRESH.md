@@ -12,11 +12,28 @@ The supplied GMB snapshot is legacy. Production deployment must replace it becau
 npm run data:refresh
 ```
 
+`npm run data:refresh` contacts the upstream data sources and replaces the bundled topology snapshots. It is a maintenance operation that needs internet access; run it before a release or when operators change routes or stops.
+
+## Local web development index
+
+```bash
+npm run web
+```
+
+Every local web start rebuilds `public/data/journey/` from the bundled snapshots before Expo starts. This keeps the ignored generated journey index aligned with the checked-in snapshots, but it does not download new operator data. To update the snapshots themselves, run `npm run data:refresh` first, then start web development or run `npm run build:journey-index`.
+
 The script writes:
 
 - `src/data/ctb.json`
 - `src/data/gmb.json`
-- `src/data/mtr_stations.csv`
+- `src/data/mtr_stations.csv` (raw official download)
+- `src/data/mtr_stations.json` (converted station rows consumed by `npm run build:journey-index`)
+
+The MTR CSV download and JSON conversion happen in the same refresh command, so the generated journey index uses the refreshed MTR station data rather than a stale JSON snapshot.
+
+The refresh validates that the MTR download contains at least 200 usable line-direction rows and 90 unique station codes, positive integer sequences, recognised directions, and at least one adjacent route link before replacing either MTR snapshot. Rejected CSV input leaves the existing `mtr_stations.csv` and `mtr_stations.json` files unchanged.
+
+Valid replacements use same-directory temporary files and backups. A caught replacement failure restores both previous snapshots and removes temporary/backup artifacts; this does not make the two-file update crash-atomic if the process is forcibly terminated.
 
 ## Expected GMB schema
 

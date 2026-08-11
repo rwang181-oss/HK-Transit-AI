@@ -3,7 +3,7 @@ const fs = require('node:fs');
 
 const output = '.core-test-dist';
 fs.rmSync(output, { recursive: true, force: true });
-const compile = spawnSync('tsc', ['-p', 'tsconfig.core.json'], { stdio: 'inherit' });
+const compile = spawnSync(process.execPath, [require.resolve('typescript/bin/tsc'), '-p', 'tsconfig.core.json'], { stdio: 'inherit' });
 if (compile.status !== 0) {
   fs.rmSync(output, { recursive: true, force: true });
   process.exit(compile.status ?? 1);
@@ -17,12 +17,27 @@ for (const testFile of [
   'tests/core/walking-router.test.cjs',
   'tests/core/version-monitor.test.cjs',
   'tests/core/journey-index.test.cjs',
+  'tests/core/mtr-stations.test.cjs',
+  'tests/core/mtr-provider.test.cjs',
+  'tests/core/journey-index-provider-coverage.test.cjs',
+  'tests/core/handoff-web-command.test.cjs',
+  'tests/core/handoff-module-load.test.cjs',
   'tests/core/journey-index-cache.test.cjs',
   'tests/core/progressive-planner.test.cjs',
   'tests/core/progressive-diversity.test.cjs',
   'tests/core/progressive-refine.test.cjs',
   'tests/core/progressive-session.test.cjs',
   'tests/core/progressive-deps.test.cjs',
+  'tests/core/route-catalog.test.cjs',
+  'tests/core/route-details.test.cjs',
+  'tests/core/language-switch.test.cjs',
+  'tests/core/navigation-progress.test.cjs',
+  'tests/core/navigation-store-progress.test.cjs',
+  'tests/core/navigation-store-lifecycle.test.cjs',
+  'tests/core/live-route-controller.test.cjs',
+  'tests/core/navigation-map-model.test.cjs',
+  'tests/core/transit-map-initialization.test.cjs',
+  'tests/core/verify-types.test.cjs',
 ]) {
   const tests = spawnSync(process.execPath, [testFile], { stdio: 'inherit' });
   if (tests.status !== 0) {

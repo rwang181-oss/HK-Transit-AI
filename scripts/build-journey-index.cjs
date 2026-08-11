@@ -100,13 +100,30 @@ function normalizeStop(provider, raw) {
 }
 
 function normalizeLink(provider, raw) {
+  const direction = String(raw.direction || raw.dir || '');
   return {
     route: String(raw.route || raw.line || ''),
-    bound: raw.bound === 'I' || raw.direction === 'DT' || raw.dir === 'DT' ? 'I' : 'O',
+    bound: raw.bound === 'I' || direction === 'DT' || direction.endsWith('-DT') ? 'I' : 'O',
+    direction,
     seq: finiteNumber(raw.seq),
     stopId: String(raw.stopId || raw.stop || raw.stationCode || raw.code || ''),
     provider,
   };
+}
+
+function routeKeyForLink(link) {
+  const routeKey = `${link.provider}:${link.route}:${link.bound}`;
+  const routeVariant = routeVariantForLink(link);
+  return routeVariant
+    ? `${routeKey}:${routeVariant}`
+    : routeKey;
+}
+
+function routeVariantForLink(link) {
+  const ordinaryDirection = link.bound === 'I' ? 'DT' : 'UT';
+  return link.provider === 'MTR' && link.direction && link.direction !== ordinaryDirection
+    ? link.direction
+    : undefined;
 }
 
 function topologyFromSnapshot(provider, payload) {
@@ -226,7 +243,7 @@ function buildJourneyIndex(topologies, options = {}) {
   for (const [provider, topology] of Object.entries(normalizedTopologies)) {
     for (const link of topology.links || []) {
       if (!link.route || !link.stopId || link.seq <= 0) continue;
-      const routeKey = `${provider}:${link.route}:${link.bound}`;
+      const routeKey = routeKeyForLink(link);
       if (!grouped.has(routeKey)) grouped.set(routeKey, []);
       grouped.get(routeKey).push(link);
     }
@@ -257,6 +274,7 @@ function buildJourneyIndex(topologies, options = {}) {
       provider: first.provider,
       route: first.route,
       bound: first.bound,
+      routeVariant: routeVariantForLink(first),
       hubs: hubIds,
       cumulativeMinutes,
     };

@@ -23,6 +23,7 @@ export default function RootLayout() {
         />
         <Stack.Screen name="journey/stop-eta" options={{ headerShown: true }} />
         <Stack.Screen name="eta/[routeId]" options={{ headerShown: false }} />
+        <Stack.Screen name="route-detail" options={{ headerShown: true }} />
       </Stack>
     </>
   );

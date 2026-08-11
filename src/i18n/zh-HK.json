@@ -13,6 +13,8 @@
     "title": "路線",
     "placeholder": "輸入路線，例如 1A",
     "noResults": "找不到相關路線",
+    "partialData": "部分營辦商暫時未能提供資料，仍會顯示可用路線。",
+    "providerUnavailable": "此交通營辦商暫時未能提供服務。",
     "direction": "方向",
     "outbound": "去程",
     "inbound": "回程"
@@ -23,6 +25,8 @@
     "min": "分鐘",
     "arriving": "即將到站",
     "noETA": "暫無實時到站資料",
+    "unavailable": "暫無實時到站資料",
+    "loadError": "未能載入實時到站資料",
     "refreshingIn": "{{seconds}} 秒後更新"
   },
   "nearby": {
@@ -145,6 +149,13 @@
     "start": "開始實時行程",
     "stop": "停止追蹤",
     "live": "實時行程",
+    "youAreHere": "你的位置",
+    "nextTarget": "下一目標",
+    "locating": "正在定位……",
+    "recenter": "重新置中",
+    "routedPath": "行人路線",
+    "estimatedRoute": "估算連接線",
+    "targetUnavailable": "此階段的目標座標暫時不可用。",
     "minutesRemaining": "分鐘後到達",
     "walkingSpeed": "步行速度",
     "recalibrated": "已重新校準時間",
@@ -155,6 +166,7 @@
     "nextStage": "進入下一階段",
     "foregroundOnly": "此網頁／原生 MVP 只會在應用程式保持開啟時更新實時步速。",
     "phases": {
+      "walkingTransfer": "步行前往轉乘上車點",
       "idle": "尚未開始",
       "walkingToTransit": "步行前往上車點",
       "waiting": "正在候車",

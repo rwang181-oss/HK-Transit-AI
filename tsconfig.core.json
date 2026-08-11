@@ -4,7 +4,9 @@
     "module": "CommonJS",
     "moduleResolution": "Node",
     "strict": true,
+    "ignoreDeprecations": "5.0",
     "esModuleInterop": true,
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "rootDir": "src",
     "outDir": ".core-test-dist",
@@ -17,6 +19,7 @@
     }
   },
   "include": [
+    "src/components/transitMapInitialization.ts",
     "src/journey/providers/types.ts",
     "src/journey/model/types.ts",
     "src/journey/data/kmbTopology.ts",
@@ -31,11 +34,20 @@
     "src/journey/comfort/**/*.ts",
     "src/journey/realtime/etaEstimator.ts",
     "src/journey/providers/gmbParser.ts",
+    "src/journey/providers/http.ts",
+    "src/journey/providers/mtr.ts",
     "src/journey/realtime/departureSelector.ts",
     "src/journey/realtime/navigationTiming.ts",
+    "src/journey/realtime/navigationProgress.ts",
+    "src/journey/realtime/liveRouteController.ts",
+    "src/journey/realtime/navigationMapModel.ts",
+    "src/stores/navigationStore.ts",
     "src/journey/providers/routeDisplay.ts",
+    "src/journey/search/routeCatalog.ts",
+    "src/journey/search/routeDetails.ts",
     "src/utils/requestCache.ts",
     "src/utils/asyncPool.ts",
-    "src/utils/versionMonitor.ts"
+    "src/utils/versionMonitor.ts",
+    "src/utils/languageSwitch.ts"
   ]
 }

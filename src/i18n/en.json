@@ -13,6 +13,8 @@
     "title": "Routes",
     "placeholder": "Enter route, e.g. 1A",
     "noResults": "No routes found",
+    "partialData": "Some providers are temporarily unavailable. Available routes are still shown.",
+    "providerUnavailable": "This transit provider is currently unavailable.",
     "direction": "Direction",
     "outbound": "Outbound",
     "inbound": "Inbound"
@@ -23,6 +25,8 @@
     "min": "min",
     "arriving": "Arriving",
     "noETA": "No live ETA available",
+    "unavailable": "Live ETA unavailable",
+    "loadError": "Could not load live ETA",
     "refreshingIn": "Refreshing in {{seconds}}s"
   },
   "nearby": {
@@ -145,6 +149,13 @@
     "start": "Start live journey",
     "stop": "Stop tracking",
     "live": "LIVE JOURNEY",
+    "youAreHere": "You are here",
+    "nextTarget": "Next target",
+    "locating": "Locating you...",
+    "recenter": "Recenter",
+    "routedPath": "Pedestrian route",
+    "estimatedRoute": "Estimated connection",
+    "targetUnavailable": "Target coordinates are unavailable for this stage.",
     "minutesRemaining": "min remaining",
     "walkingSpeed": "Walking speed",
     "recalibrated": "ETA recalibrated",
@@ -155,6 +166,7 @@
     "nextStage": "Move to next stage",
     "foregroundOnly": "Live speed recalibration runs only while the app is open in this web/native MVP.",
     "phases": {
+      "walkingTransfer": "Walking to the transfer boarding point",
       "idle": "Not started",
       "walkingToTransit": "Walking to the boarding point",
       "waiting": "Waiting for the service",

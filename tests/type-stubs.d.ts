@@ -5,6 +5,7 @@ declare namespace JSX {
 }
 
 declare module 'react' {
+  export function useCallback<T extends (...args: any[]) => any>(callback: T, deps: any[]): T;
   export function useEffect(effect: any, deps?: any[]): void;
   export function useMemo<T>(factory: () => T, deps: any[]): T;
   export function useRef<T>(value: T): { current: T };

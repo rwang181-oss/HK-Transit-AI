@@ -1,4 +1,4 @@
-import type { ProviderId } from '@/src/journey/providers/types';
+import { getRouteServiceKey, type ProviderId } from '../providers/types';
 import type { JourneyMode, JourneyPolicy } from '@/src/journey/model/types';
 import { haversineMeters } from '../graph/travelTime';
 import { applyJourneyPolicy } from '../planner/routePolicies';
@@ -165,10 +165,15 @@ function rideLeg(route: IndexedRoute, fromHub: IndexedHub, toHub: IndexedHub, mi
     provider: route.provider,
     route: route.route,
     bound: route.bound,
+    routeVariant: route.routeVariant,
     fromHubId: fromHub.id,
     toHubId: toHub.id,
     fromName: fromHub.name_en,
     toName: toHub.name_en,
+    fromLat: fromHub.lat,
+    fromLng: fromHub.lng,
+    toLat: toHub.lat,
+    toLng: toHub.lng,
     minutes,
     kind: 'ride',
   };
@@ -239,6 +244,7 @@ function buildEstimatedOption(
     boardProvider: firstRoute.provider,
     boardRoute: firstRoute.route,
     boardBound: firstRoute.bound,
+    boardRouteVariant: firstRoute.routeVariant,
     boardHub: state.boardHub,
     alightHub: destination.hub,
     geometry,
@@ -252,7 +258,7 @@ function buildEstimatedOption(
 function serviceSignature(option: IndexedJourneyOption): string {
   return option.itinerary.legs
     .filter((leg) => leg.kind === 'ride')
-    .map((leg) => `${leg.provider}:${leg.route}:${leg.bound}`)
+    .map((leg) => getRouteServiceKey(leg.provider, leg.route, leg.bound, leg.routeVariant))
     .join('>');
 }
 

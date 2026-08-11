@@ -9,21 +9,15 @@ import {
   View,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
+import {
+  createTransitMapInitialization,
+  type MapPath,
+  type MapPoint,
+} from '@/src/components/transitMapInitialization';
+import { loadLeaflet } from '@/src/components/loadLeaflet';
 import { COLORS } from '@/src/utils/constants';
 
-export interface MapPoint {
-  lat: number;
-  lng: number;
-  label?: string;
-  kind?: 'start' | 'end' | 'stop' | 'me';
-}
-
-export interface MapPath {
-  id: string;
-  points: Array<{ lat: number; lng: number }>;
-  color?: string;
-  dashed?: boolean;
-}
+export type { MapPath, MapPoint } from '@/src/components/transitMapInitialization';
 
 interface TransitMapProps {
   center: { lat: number; lng: number };
@@ -31,6 +25,8 @@ interface TransitMapProps {
   paths?: MapPath[];
   height?: number;
   onPickPoint?: (point: { lat: number; lng: number }) => void;
+  followPoint?: { lat: number; lng: number } | null;
+  followZoom?: number;
 }
 
 function pointColor(kind: MapPoint['kind']): string {
@@ -60,6 +56,8 @@ export function TransitMap({
   paths = [],
   height = 240,
   onPickPoint,
+  followPoint = null,
+  followZoom,
 }: TransitMapProps) {
   const { t } = useTranslation();
   const containerRef = useRef<View>(null);
@@ -67,9 +65,16 @@ export function TransitMap({
   const layerRef = useRef<any>(null);
   const leafletRef = useRef<any>(null);
   const pickHandlerRef = useRef(onPickPoint);
+  const initializationRef = useRef<ReturnType<typeof createTransitMapInitialization> | null>(null);
+  const followingRef = useRef(true);
   const [loading, setLoading] = useState(Platform.OS === 'web');
   const [mapError, setMapError] = useState(false);
+  const [following, setFollowing] = useState(true);
+  const [mapReadyVersion, setMapReadyVersion] = useState(0);
   pickHandlerRef.current = onPickPoint;
+  const initializationInput = { center, points, paths, followPoint, followZoom };
+  if (initializationRef.current) initializationRef.current.update(initializationInput);
+  else initializationRef.current = createTransitMapInitialization(initializationInput);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return undefined;
@@ -80,13 +85,13 @@ export function TransitMap({
     void (async () => {
       try {
         ensureLeafletCss();
-        const module = await import('leaflet');
+        const L = await loadLeaflet();
         if (disposed || !containerRef.current) return;
-        const L = module.default || module;
+        const initial = initializationRef.current!.consume();
         leafletRef.current = L;
         map = L.map(containerRef.current as any, {
-          center: [center.lat, center.lng],
-          zoom: 15,
+          center: [initial.mapCenter.lat, initial.mapCenter.lng],
+          zoom: initial.mapZoom,
           attributionControl: true,
           zoomControl: true,
           preferCanvas: true,
@@ -111,11 +116,16 @@ export function TransitMap({
         map.on('click', (event: any) => {
           pickHandlerRef.current?.({ lat: event.latlng.lat, lng: event.latlng.lng });
         });
+        map.on('dragstart', () => {
+          followingRef.current = false;
+          setFollowing(false);
+        });
         map.whenReady(() => {
           if (!disposed) setLoading(false);
         });
         mapRef.current = map;
-        renderLayers(map, L, points, paths);
+        renderLayers(map, L, initial.points, initial.paths, initial.shouldFitBounds);
+        setMapReadyVersion((version) => version + 1);
         requestAnimationFrame(() => map.invalidateSize(false));
 
         if (typeof ResizeObserver !== 'undefined') {
@@ -145,16 +155,41 @@ export function TransitMap({
     const map = mapRef.current;
     const L = leafletRef.current;
     if (!map || !L) return;
-    renderLayers(map, L, points, paths);
-  }, [points, paths]);
+    renderLayers(map, L, points, paths, !followPoint);
+    if (followingRef.current && followPoint) {
+      map.setView(
+        [followPoint.lat, followPoint.lng],
+        followZoom ?? Math.max(map.getZoom(), 16),
+        { animate: false }
+      );
+    }
+  }, [points, paths, followPoint?.lat, followPoint?.lng, followZoom, mapReadyVersion]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    if (!map || followPoint) return;
     map.setView([center.lat, center.lng], map.getZoom(), { animate: false });
-  }, [center.lat, center.lng]);
+  }, [center.lat, center.lng, followPoint, mapReadyVersion]);
 
-  function renderLayers(map: any, L: any, mapPoints: MapPoint[], mapPaths: MapPath[]) {
+  const recenter = () => {
+    followingRef.current = true;
+    setFollowing(true);
+    const map = mapRef.current;
+    if (!map || !followPoint) return;
+    map.setView(
+      [followPoint.lat, followPoint.lng],
+      followZoom ?? Math.max(map.getZoom(), 16),
+      { animate: false }
+    );
+  };
+
+  function renderLayers(
+    map: any,
+    L: any,
+    mapPoints: MapPoint[],
+    mapPaths: MapPath[],
+    shouldFitBounds: boolean
+  ) {
     if (layerRef.current) map.removeLayer(layerRef.current);
     const layer = L.layerGroup();
     const bounds: Array<[number, number]> = [];
@@ -190,13 +225,14 @@ export function TransitMap({
 
     layer.addTo(map);
     layerRef.current = layer;
-    if (bounds.length > 1) {
+    if (shouldFitBounds && bounds.length > 1) {
       map.fitBounds(bounds, { padding: [24, 24], maxZoom: 16, animate: false });
     }
   }
 
   if (Platform.OS !== 'web') {
-    const destination = points.find((point) => point.kind === 'end') || points[points.length - 1];
+    const destination = points.find((point) => point.kind === 'end')
+      ?? [...points].reverse().find((point) => point.kind === 'stop');
     return (
       <View style={[styles.nativeCard, { height }]}>
         <Text style={styles.nativeTitle}>{t('journey.nativeMapTitle')}</Text>
@@ -231,6 +267,16 @@ export function TransitMap({
           <Text style={styles.errorText}>{t('journey.mapUnavailable')}</Text>
         </View>
       ) : null}
+      {!following && followPoint && !mapError ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('navigation.recenter')}
+          onPress={recenter}
+          style={styles.recenterButton}
+        >
+          <Text style={styles.recenterText}>{t('navigation.recenter')}</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -263,6 +309,24 @@ const styles = StyleSheet.create({
   },
   loadingText: { color: COLORS.textSecondary, fontSize: 12, fontWeight: '600' },
   errorText: { color: COLORS.textSecondary, fontSize: 12, fontWeight: '600' },
+  recenterButton: {
+    position: 'absolute',
+    right: 12,
+    bottom: 12,
+    minHeight: 40,
+    borderRadius: 20,
+    paddingHorizontal: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    shadowColor: '#000000',
+    shadowOpacity: 0.16,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  recenterText: { color: COLORS.textPrimary, fontSize: 12, fontWeight: '700' },
   nativeCard: {
     width: '100%',
     borderRadius: 18,

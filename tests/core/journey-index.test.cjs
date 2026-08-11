@@ -53,6 +53,61 @@ assert.equal(
   index.routes['KMB:203E:O'].hubs.length
 );
 
+const mtrIndex = buildJourneyIndex({
+  MTR: {
+    stops: [
+      { stopId: 'LOW', name_en: 'Lo Wu', name_tc: '', lat: 22.528, lng: 114.113 },
+      { stopId: 'LMC', name_en: 'Lok Ma Chau', name_tc: '', lat: 22.52, lng: 114.06 },
+      { stopId: 'SHS', name_en: 'Sheung Shui', name_tc: '', lat: 22.50, lng: 114.12 },
+      { stopId: 'ADM', name_en: 'Admiralty', name_tc: '', lat: 22.279, lng: 114.165 },
+    ],
+    links: [
+      { route: 'EAL', dir: 'DT', seq: 1, stopId: 'LOW' },
+      { route: 'EAL', dir: 'DT', seq: 2, stopId: 'SHS' },
+      { route: 'EAL', dir: 'DT', seq: 3, stopId: 'ADM' },
+      { route: 'EAL', dir: 'LMC-DT', seq: 1, stopId: 'LMC' },
+      { route: 'EAL', dir: 'LMC-DT', seq: 2, stopId: 'SHS' },
+      { route: 'EAL', dir: 'LMC-DT', seq: 3, stopId: 'ADM' },
+      { route: 'EAL', dir: 'UT', seq: 1, stopId: 'ADM' },
+      { route: 'EAL', dir: 'UT', seq: 2, stopId: 'SHS' },
+      { route: 'EAL', dir: 'UT', seq: 3, stopId: 'LOW' },
+      { route: 'EAL', dir: 'LMC-UT', seq: 1, stopId: 'ADM' },
+      { route: 'EAL', dir: 'LMC-UT', seq: 2, stopId: 'SHS' },
+      { route: 'EAL', dir: 'LMC-UT', seq: 3, stopId: 'LMC' },
+    ],
+  },
+}, {
+  idByMember: {
+    'MTR:LOW': 'hub-low',
+    'MTR:LMC': 'hub-lmc',
+    'MTR:SHS': 'hub-shs',
+    'MTR:ADM': 'hub-adm',
+  },
+});
+assert.deepEqual(Object.keys(mtrIndex.routes).sort(), [
+  'MTR:EAL:I',
+  'MTR:EAL:I:LMC-DT',
+  'MTR:EAL:O',
+  'MTR:EAL:O:LMC-UT',
+]);
+assert.deepEqual(mtrIndex.routes['MTR:EAL:I'].hubs, ['hub-low', 'hub-shs', 'hub-adm']);
+assert.deepEqual(mtrIndex.routes['MTR:EAL:I:LMC-DT'].hubs, ['hub-lmc', 'hub-shs', 'hub-adm']);
+assert.deepEqual(mtrIndex.routes['MTR:EAL:O'].hubs, ['hub-adm', 'hub-shs', 'hub-low']);
+assert.deepEqual(mtrIndex.routes['MTR:EAL:O:LMC-UT'].hubs, ['hub-adm', 'hub-shs', 'hub-lmc']);
+assert.equal(mtrIndex.routes['MTR:EAL:I:LMC-DT'].routeVariant, 'LMC-DT');
+assert.equal(mtrIndex.routes['MTR:EAL:O:LMC-UT'].routeVariant, 'LMC-UT');
+for (const [routeKey, bound] of [
+  ['MTR:EAL:I', 'I'],
+  ['MTR:EAL:I:LMC-DT', 'I'],
+  ['MTR:EAL:O', 'O'],
+  ['MTR:EAL:O:LMC-UT', 'O'],
+]) {
+  assert.deepEqual(
+    { provider: mtrIndex.routes[routeKey].provider, route: mtrIndex.routes[routeKey].route, bound: mtrIndex.routes[routeKey].bound },
+    { provider: 'MTR', route: 'EAL', bound },
+  );
+}
+
 const eyeHub = index.hubs.find((hub) => hub.id === 'hub-eye');
 const junctionHub = index.hubs.find((hub) => hub.id === 'hub-junction');
 assert.ok(eyeHub);

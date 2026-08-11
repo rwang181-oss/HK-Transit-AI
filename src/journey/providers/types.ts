@@ -9,6 +9,8 @@ export interface Route {
   dest_tc: string;
   provider: ProviderId;
   sourceRouteId?: string;
+  /** Distinguishes an internal service variant without changing the public route code. */
+  routeVariant?: string;
   routeSeq?: number;
   region?: string;
 }
@@ -30,6 +32,7 @@ export interface RouteStopLink {
   stopId: string;
   provider: ProviderId;
   sourceRouteId?: string;
+  routeVariant?: string;
   routeSeq?: number;
   stopSeq?: number;
 }
@@ -51,11 +54,38 @@ export interface ProviderTopology {
   links: RouteStopLink[];
 }
 
+/** Stable internal service identity; the fourth segment is present only for variants. */
+export function getRouteServiceKey(
+  provider: ProviderId | string,
+  route: string,
+  bound: 'O' | 'I',
+  routeVariant?: string
+): string {
+  return routeVariant
+    ? `${provider}:${route}:${bound}:${routeVariant}`
+    : `${provider}:${route}:${bound}`;
+}
+
+export function parseRouteServiceKey(routeKey: string): {
+  provider: ProviderId;
+  route: string;
+  bound: 'O' | 'I';
+  routeVariant?: string;
+} {
+  const [provider, route, bound, routeVariant] = routeKey.split(':');
+  return {
+    provider: provider as ProviderId,
+    route,
+    bound: bound as 'O' | 'I',
+    routeVariant: routeVariant || undefined,
+  };
+}
+
 export interface TransitProvider {
   id: ProviderId;
   fetchRoutes(): Promise<Route[]>;
   fetchStops(): Promise<Stop[]>;
-  fetchRouteStops(route: string, bound: 'O' | 'I'): Promise<RouteStopLink[]>;
+  fetchRouteStops(route: string, bound: 'O' | 'I', routeVariant?: string): Promise<RouteStopLink[]>;
   fetchETA(stopId: string, route: string): Promise<ETA[]>;
   fetchTopology?(): Promise<ProviderTopology>;
 }

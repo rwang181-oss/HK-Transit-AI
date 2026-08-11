@@ -1,6 +1,7 @@
 import type { Graph, Edge } from '../graph/graphBuilder';
 import type { StopHub } from '../graph/stopMerger';
 import { haversineMeters } from '../graph/travelTime';
+import { getRouteServiceKey } from '../providers/types';
 
 export interface CandidatePoolItem {
   routeKey: string;
@@ -13,6 +14,7 @@ export interface CandidatePoolItem {
       provider: string;
       route: string;
       bound: 'O' | 'I';
+      routeVariant?: string;
       fromHubId: string;
       toHubId: string;
       kind: 'ride' | 'transfer';
@@ -49,7 +51,7 @@ function serviceSequence(candidate: CandidatePoolItem): string {
   if (candidate.isDirect) return candidate.routeKey;
   return candidate.itinerary?.legs
     .filter((leg) => leg.kind === 'ride')
-    .map((leg) => `${leg.provider}:${leg.route}:${leg.bound}`)
+    .map((leg) => getRouteServiceKey(leg.provider, leg.route, leg.bound, leg.routeVariant))
     .join('|') || candidate.routeKey;
 }
 
@@ -120,7 +122,7 @@ function directRouteIndexes(graph: Graph) {
   const routeEdges = new Map<string, Map<string, Edge>>();
   for (const edge of graph.edges) {
     if (edge.kind !== 'ride') continue;
-    const routeKey = `${edge.provider}:${edge.route}:${edge.bound}`;
+    const routeKey = getRouteServiceKey(edge.provider, edge.route, edge.bound, edge.routeVariant);
     const routes = hubRoutes.get(edge.from) || [];
     if (!routes.includes(routeKey)) routes.push(routeKey);
     hubRoutes.set(edge.from, routes);
@@ -190,7 +192,7 @@ export function selectRouteAwareHubs(
   const routesByHub = new Map<string, Set<string>>();
   for (const edge of graph.edges) {
     if (edge.kind !== 'ride') continue;
-    const key = `${edge.provider}:${edge.route}:${edge.bound}`;
+    const key = getRouteServiceKey(edge.provider, edge.route, edge.bound, edge.routeVariant);
     if (!routesByHub.has(edge.from)) routesByHub.set(edge.from, new Set());
     routesByHub.get(edge.from)!.add(key);
   }

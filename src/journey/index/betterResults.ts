@@ -1,5 +1,6 @@
 import type { JourneyPolicy } from '../model/types';
 import { applyJourneyPolicy } from '../planner/routePolicies';
+import { getRouteServiceKey } from '../providers/types';
 import type { IndexedJourneyOption } from './types';
 
 const MIN_TIME_IMPROVEMENT_MINUTES = 5;
@@ -8,7 +9,7 @@ const MIN_WALKING_IMPROVEMENT_METERS = 300;
 export function journeyServiceSignature(option: Pick<IndexedJourneyOption, 'itinerary'>): string {
   return option.itinerary.legs
     .filter((leg) => leg.kind === 'ride')
-    .map((leg) => `${leg.provider}:${leg.route}:${leg.bound}`)
+    .map((leg) => getRouteServiceKey(leg.provider, leg.route, leg.bound, leg.routeVariant))
     .join('>');
 }
 

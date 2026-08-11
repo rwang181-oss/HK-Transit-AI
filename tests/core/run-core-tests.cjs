@@ -176,9 +176,10 @@ test('ride time counts down from the phase start', () => {
 
 
 
-test('GMB internal route keys are presented as public route codes', () => {
+test('provider internal route keys are presented as public route codes', () => {
   assert.equal(routeDisplay.formatPublicRouteCode('GMB', '10~2000012-I'), '10');
   assert.equal(routeDisplay.formatPublicRouteCode('GMB', '10P-O'), '10P');
+  assert.equal(routeDisplay.formatPublicRouteCode('MTR', 'EAL~LMC-UT'), 'EAL');
   assert.equal(routeDisplay.formatPublicRouteCode('KMB', '960'), '960');
 });
 

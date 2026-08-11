@@ -1,16 +1,55 @@
-import {
-  fetchAllRoutes,
-  fetchAllStops,
-  fetchRouteStops,
-  fetchETA,
-} from '../kmbAPI';
-
 const mockFetch = jest.fn();
-global.fetch = mockFetch as unknown as typeof fetch;
+const mockLoadKmbSnapshot = jest.fn();
+const mockResolveKmbTopology = jest.fn();
+let api: typeof import('../kmbAPI');
+
+jest.mock('@/src/journey/providers/kmbSnapshotLoader', () => ({
+  loadKmbSnapshot: () => mockLoadKmbSnapshot(),
+}), { virtual: true });
+
+jest.mock('@/src/journey/data/kmbTopology', () => ({
+  resolveKmbTopology: (options: unknown) => mockResolveKmbTopology(options),
+}));
+
+const bundledTopology = {
+  stops: [
+    {
+      stopId: 'STOP-B',
+      name_en: 'Beta Stop',
+      name_tc: '乙站',
+      name_sc: '乙站',
+      lat: 22.302,
+      lng: 114.172,
+      provider: 'KMB' as const,
+    },
+    {
+      stopId: 'STOP-A',
+      name_en: 'Alpha Stop',
+      name_tc: '甲站',
+      name_sc: '甲站',
+      lat: 22.301,
+      lng: 114.171,
+      provider: 'KMB' as const,
+    },
+  ],
+  links: [
+    { route: '8', bound: 'I' as const, seq: 2, stopId: 'STOP-B', provider: 'KMB' as const },
+    { route: '8', bound: 'I' as const, seq: 1, stopId: 'STOP-A', provider: 'KMB' as const },
+  ],
+  cachedAt: '2026-08-10T00:00:00.000Z',
+};
 
 describe('kmbAPI', () => {
   beforeEach(() => {
+    jest.resetModules();
     mockFetch.mockReset();
+    mockLoadKmbSnapshot.mockReset().mockResolvedValue(bundledTopology);
+    mockResolveKmbTopology.mockReset().mockImplementation(async (options) => ({
+      topology: options.bundled,
+      source: 'bundled',
+    }));
+    global.fetch = mockFetch as unknown as typeof fetch;
+    api = require('../kmbAPI');
   });
 
   describe('fetchAllRoutes', () => {
@@ -23,10 +62,15 @@ describe('kmbAPI', () => {
         json: () => Promise.resolve({ data: mockRoutes }),
       });
 
-      const result = await fetchAllRoutes();
+      const result = await api.fetchAllRoutes();
       expect(result).toEqual(mockRoutes);
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://data.etabus.gov.hk/v1/transport/kmb/route/'
+        'https://data.etabus.gov.hk/v1/transport/kmb/route/',
+        expect.objectContaining({
+          cache: 'default',
+          headers: { Accept: 'application/json' },
+          signal: expect.any(AbortSignal),
+        })
       );
     });
 
@@ -36,27 +80,56 @@ describe('kmbAPI', () => {
         status: 500,
         statusText: 'Server Error',
       });
-      await expect(fetchAllRoutes()).rejects.toThrow('API error: 500');
+      await expect(api.fetchAllRoutes()).rejects.toThrow('API error: 500');
     });
 
     it('throws on network failure', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Network error'));
-      await expect(fetchAllRoutes()).rejects.toThrow('Network error');
+      await expect(api.fetchAllRoutes()).rejects.toThrow('Network error');
     });
   });
 
-  describe('fetchAllStops', () => {
-    it('fetches and returns stop data', async () => {
-      const mockStops = [
-        { stop: 'ABC123', name_en: 'PolyU', lat: 22.3, long: 114.17 },
+  describe('request cache', () => {
+    it('reuses a successful route response within the cache lifetime', async () => {
+      const mockRoutes = [
+        { route: '1A', orig_en: 'Star Ferry', dest_en: 'Kwun Tong' },
       ];
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ data: mockStops }),
+        json: () => Promise.resolve({ data: mockRoutes }),
       });
 
-      const result = await fetchAllStops();
-      expect(result).toEqual(mockStops);
+      await expect(api.fetchAllRoutes()).resolves.toEqual(mockRoutes);
+      await expect(api.fetchAllRoutes()).resolves.toEqual(mockRoutes);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('bundled topology adapters', () => {
+    it('maps stops and route-stops in source order and shares one topology load', async () => {
+      const [stops, routeStops] = await Promise.all([
+        api.fetchAllStops(),
+        api.fetchAllRouteStops(),
+      ]);
+
+      expect(stops).toEqual([
+        { stop: 'STOP-B', name_en: 'Beta Stop', name_tc: '乙站', lat: 22.302, long: 114.172 },
+        { stop: 'STOP-A', name_en: 'Alpha Stop', name_tc: '甲站', lat: 22.301, long: 114.171 },
+      ]);
+      expect(routeStops).toEqual([
+        { route: '8', bound: 'I', service_type: '1', seq: 2, stop: 'STOP-B' },
+        { route: '8', bound: 'I', service_type: '1', seq: 1, stop: 'STOP-A' },
+      ]);
+
+      await api.fetchAllStops();
+      await api.fetchAllRouteStops();
+      expect(mockLoadKmbSnapshot).toHaveBeenCalledTimes(1);
+      expect(mockResolveKmbTopology).toHaveBeenCalledTimes(1);
+      expect(mockResolveKmbTopology).toHaveBeenCalledWith(expect.objectContaining({
+        bundled: bundledTopology,
+        fetchFresh: expect.any(Function),
+        persistFresh: expect.any(Function),
+      }));
     });
   });
 
@@ -70,10 +143,15 @@ describe('kmbAPI', () => {
         json: () => Promise.resolve({ data: mockRouteStops }),
       });
 
-      const result = await fetchRouteStops('1A', 'O');
+      const result = await api.fetchRouteStops('1A', 'O');
       expect(result).toEqual(mockRouteStops);
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://data.etabus.gov.hk/v1/transport/kmb/route-stop/1A/outbound/1'
+        'https://data.etabus.gov.hk/v1/transport/kmb/route-stop/1A/outbound/1',
+        expect.objectContaining({
+          cache: 'default',
+          headers: { Accept: 'application/json' },
+          signal: expect.any(AbortSignal),
+        })
       );
     });
   });
@@ -101,10 +179,15 @@ describe('kmbAPI', () => {
         json: () => Promise.resolve({ data: mockETA }),
       });
 
-      const result = await fetchETA('ABC123', '1A');
+      const result = await api.fetchETA('ABC123', '1A');
       expect(result).toEqual(mockETA);
       expect(mockFetch).toHaveBeenCalledWith(
-        'https://data.etabus.gov.hk/v1/transport/kmb/eta/ABC123/1A/1'
+        'https://data.etabus.gov.hk/v1/transport/kmb/eta/ABC123/1A/1',
+        expect.objectContaining({
+          cache: 'default',
+          headers: { Accept: 'application/json' },
+          signal: expect.any(AbortSignal),
+        })
       );
     });
   });

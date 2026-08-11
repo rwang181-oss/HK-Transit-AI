@@ -33,6 +33,7 @@ export interface IndexedRoute {
   provider: ProviderId;
   route: string;
   bound: 'O' | 'I';
+  routeVariant?: string;
   hubs: string[];
   cumulativeMinutes: number[];
 }
@@ -69,10 +70,15 @@ export interface IndexedJourneyLeg {
   provider: ProviderId;
   route: string;
   bound: 'O' | 'I';
+  routeVariant?: string;
   fromHubId: string;
   toHubId: string;
   fromName: string;
   toName: string;
+  fromLat: number;
+  fromLng: number;
+  toLat: number;
+  toLng: number;
   minutes: number;
   kind: 'ride' | 'transfer';
 }
@@ -110,6 +116,7 @@ export interface IndexedJourneyOption {
   boardProvider: ProviderId;
   boardRoute: string;
   boardBound: 'O' | 'I';
+  boardRouteVariant?: string;
   boardHub: IndexedHub;
   alightHub: IndexedHub;
   geometry: JourneyGeometryPoint[];

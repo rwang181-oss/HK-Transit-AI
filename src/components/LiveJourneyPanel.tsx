@@ -75,7 +75,7 @@ export function LiveJourneyPanel({ embedded = false }: { embedded?: boolean }) {
         </Text>
       </View>
 
-      {phase === 'walkingToTransit' || phase === 'waiting' ? (
+      {phase === 'walkingToTransit' || phase === 'walkingTransfer' || phase === 'waiting' ? (
         <View style={styles.departureCard}>
           <Text style={styles.departureText}>
             {t('navigation.dynamicWait', { minutes: Math.max(0, Math.ceil(liveWaitMinutes)) })}

@@ -20,6 +20,8 @@ import { useMapPickerStore } from '@/src/stores/mapPickerStore';
 import { useLocationStore } from '@/src/stores/locationStore';
 import { useWeatherStore } from '@/src/stores/weatherStore';
 import { COLORS } from '@/src/utils/constants';
+import { changeLanguage } from '@/src/utils/i18n';
+import { languageSwitchLabel, nextLanguage, type AppLanguage } from '@/src/utils/languageSwitch';
 
 type Target = 'from' | 'to';
 
@@ -29,8 +31,9 @@ function providerSummary(item: PlaceSuggestion, translate: (key: string) => stri
 }
 
 export default function JourneyScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const router = useRouter();
+  const lang: AppLanguage = i18n.language === 'zh-HK' ? 'zh-HK' : 'en';
   const searchAny = useJourneyStore((state) => state.searchAny);
   const pendingMapPick = useMapPickerStore((state) => state.pending);
   const setPendingMapPick = useMapPickerStore((state) => state.setPending);
@@ -199,12 +202,22 @@ export default function JourneyScreen() {
       >
         <View style={styles.page}>
           <View style={styles.brandRow}>
-            <Text style={styles.brand}>HK Transit AI</Text>
-            {weatherParts.length > 0 ? (
-              <View style={styles.weatherPill}>
-                <Text style={styles.weatherText}>{weatherParts.join(' · ')}</Text>
-              </View>
-            ) : null}
+            <Text style={styles.brand}>HK Transit</Text>
+            <View style={styles.headerControls}>
+              {weatherParts.length > 0 ? (
+                <View style={styles.weatherPill}>
+                  <Text style={styles.weatherText} numberOfLines={1}>{weatherParts.join(' · ')}</Text>
+                </View>
+              ) : null}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={lang === 'en' ? '切換至繁體中文' : 'Switch to English'}
+                onPress={() => void changeLanguage(nextLanguage(lang))}
+                style={styles.languageButton}
+              >
+                <Text style={styles.languageText}>{languageSwitchLabel(lang)}</Text>
+              </Pressable>
+            </View>
           </View>
 
           <View style={styles.searchCard}>
@@ -336,7 +349,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 10,
   },
-  brand: { color: COLORS.textPrimary, fontSize: 21, fontWeight: '800' },
+  brand: { color: COLORS.textPrimary, fontSize: 21, fontWeight: '800', flexShrink: 1 },
+  headerControls: { flexDirection: 'row', alignItems: 'center', gap: 7, flexShrink: 1 },
   weatherPill: {
     backgroundColor: COLORS.bgCard,
     borderRadius: 12,
@@ -344,9 +358,21 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     paddingHorizontal: 9,
     paddingVertical: 7,
-    maxWidth: '58%',
+    maxWidth: 116,
   },
   weatherText: { color: COLORS.textSecondary, fontSize: 10, fontWeight: '600' },
+  languageButton: {
+    minWidth: 42,
+    minHeight: 34,
+    paddingHorizontal: 9,
+    borderRadius: 12,
+    backgroundColor: COLORS.bgCard,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  languageText: { color: COLORS.hkRed, fontSize: 12, fontWeight: '700' },
   searchCard: {
     marginHorizontal: 12,
     marginTop: 8,
