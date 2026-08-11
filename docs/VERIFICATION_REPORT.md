@@ -1,6 +1,6 @@
 # Verification Report
 
-Prepared: 2026-08-10
+Prepared: 2026-08-11
 
 ## Environment
 
@@ -65,8 +65,28 @@ Both commands exited `0`. The offline structural check covers the local React ty
 
 ## Acceptance status and boundaries
 
-The controller completed a targeted localhost recheck of the hardened recenter-follow behavior at `390×844` using synthetic geolocation. After dragging, the recenter control appeared; after clicking it, the control disappeared. A synthetic update from `22.2819,114.1588` to `22.2825,114.1594` left the control hidden and, after 1.8 seconds, the `341×360` map at `(17,85)` had viewport center `(187.5,265)` while the blue `18×18` marker at `(179,256)` had center `(188,265)`. The red route redrew and the status recalibrated.
+Controller browser acceptance completed on 2026-08-11 against the local Pages base path.
 
-An earlier old-build observation based only on the marker's inline transform omitted the parent Leaflet pane transform, so it was inconclusive and is not treated as a valid RED or root-cause proof. The successful targeted recheck is synthetic localhost evidence only: it does not demonstrate real location transmission, native-device behavior, or complete phone/desktop browser acceptance. No desktop (`1440×900`) browser pass is claimed here.
+### Phone viewport: 390x844
+
+- The home page visibly rendered `HK Transit`. `EN` and `繁中` were visible, and switching language changed the weather, From/To, map-picker, search, and tab labels.
+- Representative route searches returned provider-badged results for KMB (`1`/`1A`), Citybus (`A11`), Green Minibus (`10P`), and MTR (`EAL`). Opening `A11` displayed its ordered 24-stop detail.
+- Planning `中環/我的位置` to `金鐘` returned five options. Starting a live journey opened the modal immediately.
+- With location denied, the modal remained open and showed an explicit permission-denied state instead of locating indefinitely.
+- With synthetic localhost GPS, the modal showed a blue current-position marker, an orange target, and a red routed walking path to `CENTRAL (THE LANDMARK)`, labelled as a pedestrian/walking route. The status recalibrated after movement.
+- Dragging the map showed the recenter control; clicking it hid the control; a subsequent synthetic GPS update continued following. For the update from `22.2819,114.1588` to `22.2825,114.1594`, after 1.8 seconds the map rectangle was `(x=17, y=85, w=341, h=360)` with center `(187.5,265)`, while the blue marker rectangle was `(x=179, y=256, w=18, h=18)` with center `(188,265)`. The control stayed hidden, the red route redrew, and the status recalibrated.
+- Result cards identified `Walking estimate` and `Estimated wait`; the routed modal identified the pedestrian route. The browser console contained no warnings or errors during acceptance.
+
+### Desktop viewport: 1440x900
+
+- The home content used a centered-width layout. Search, results, the live modal, and maps resized for the desktop viewport, with controls unobscured.
+- Neither the page body nor dialog overflowed horizontally: `scrollWidth == clientWidth == 1440`.
+
+### Evidence boundaries
+
+- Browser acceptance used the local Pages base path and synthetic GPS injected into the current page for development testing. No real location was transmitted.
+- An earlier old-build observation based only on the marker's inline transform omitted the parent Leaflet pane transform, so it remains inconclusive and is not treated as a valid RED or root-cause proof.
+- Independent review approved the completed Task 8 evidence. One combined-stress run timed out once and was not reproduced; it was followed by 15 successful full runs.
+- No signed iOS build, physical-device location acceptance, native MapKit acceptance, App Store signing, or submission-readiness claim is made.
 
 The source audit confirms the home component renders `HK Transit`, translation-key parity passes, and the generated journey index contains all four required providers. This automated pass does not verify signed iOS builds, physical-device location behaviour, native MapKit behaviour, App Store signing, or submission readiness. The existing native/iOS boundary was not expanded.
