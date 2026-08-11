@@ -53,6 +53,7 @@ export default function JourneyScreen() {
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
   const hasInitializedFromLocation = useRef(false);
+  const hasEditedFrom = useRef(false);
 
   const myLocationLabel = t('journey.myLocation');
 
@@ -68,7 +69,7 @@ export default function JourneyScreen() {
   }, [refreshWeather, requestPermission, getPosition]);
 
   useEffect(() => {
-    if (!position || hasInitializedFromLocation.current) return;
+    if (!position || hasInitializedFromLocation.current || hasEditedFrom.current) return;
     hasInitializedFromLocation.current = true;
     if (fromPoint || fromQuery.trim()) return;
     const point = { ...position, name: myLocationLabel };
@@ -236,6 +237,7 @@ export default function JourneyScreen() {
                   value={fromQuery}
                   onFocus={() => setActiveField('from')}
                   onChangeText={(value) => {
+                    hasEditedFrom.current = true;
                     setFromQuery(value);
                     setFromPoint(null);
                     setActiveField('from');

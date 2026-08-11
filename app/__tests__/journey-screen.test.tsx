@@ -4,8 +4,12 @@ import TestRenderer, { act } from 'react-test-renderer';
 const mockSearchAny = jest.fn(async () => []);
 const mockRouter = { push: jest.fn() };
 const mockMapPickerState = { pending: null, setPending: jest.fn() };
+let mockPosition: { lat: number; lng: number } | null = {
+  lat: 22.2819,
+  lng: 114.1588,
+};
 const mockLocationState = {
-  position: { lat: 22.2819, lng: 114.1588 },
+  get position() { return mockPosition; },
   loading: false,
   requestPermission: jest.fn(async () => false),
   getPosition: jest.fn(async () => undefined),
@@ -80,6 +84,7 @@ import JourneyScreen from '../(tabs)/index';
 describe('JourneyScreen origin input', () => {
   beforeEach(() => {
     jest.useFakeTimers();
+    mockPosition = { lat: 22.2819, lng: 114.1588 };
   });
 
   afterEach(() => {
@@ -99,6 +104,28 @@ describe('JourneyScreen origin input', () => {
     });
 
     expect(renderer!.root.findAllByType(TextInput)[0].props.value).toBe('Central');
+    act(() => renderer!.unmount());
+  });
+
+  it('keeps an intentional empty origin when GPS arrives after manual editing', () => {
+    mockPosition = null;
+    let renderer: TestRenderer.ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(<JourneyScreen />);
+    });
+
+    act(() => {
+      renderer!.root.findAllByType(TextInput)[0].props.onChangeText('Central');
+      renderer!.root.findAllByType(TextInput)[0].props.onChangeText('');
+    });
+    expect(renderer!.root.findAllByType(TextInput)[0].props.value).toBe('');
+
+    mockPosition = { lat: 22.2819, lng: 114.1588 };
+    act(() => {
+      renderer!.update(<JourneyScreen />);
+    });
+
+    expect(renderer!.root.findAllByType(TextInput)[0].props.value).toBe('');
     act(() => renderer!.unmount());
   });
 });
