@@ -16,6 +16,12 @@ export type ProviderLoader = (id: ProviderId) => Promise<Pick<TransitProvider, '
 
 const PROVIDERS: ProviderId[] = ['KMB', 'CTB', 'GMB', 'MTR'];
 
+function catalogKey(provider: ProviderId, route: Route): string {
+  return route.routeVariant
+    ? `${provider}:${route.route}:${route.bound}:${route.routeVariant}`
+    : `${provider}:${route.route}:${route.bound}`;
+}
+
 export async function loadRouteCatalog(loadProvider: ProviderLoader): Promise<RouteCatalogResult> {
   const settled = await Promise.all(PROVIDERS.map(async (provider) => {
     try {
@@ -34,8 +40,8 @@ export async function loadRouteCatalog(loadProvider: ProviderLoader): Promise<Ro
         ...route,
         provider,
         publicRoute,
-        key: `${provider}:${route.route}:${route.bound}`,
-        searchableText: [publicRoute, route.route, route.orig_en, route.orig_tc, route.dest_en, route.dest_tc]
+        key: catalogKey(provider, route),
+        searchableText: [publicRoute, route.route, route.routeVariant, route.orig_en, route.orig_tc, route.dest_en, route.dest_tc]
           .join(' ')
           .toLocaleUpperCase(),
       };

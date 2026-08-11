@@ -9,6 +9,8 @@ export interface Route {
   dest_tc: string;
   provider: ProviderId;
   sourceRouteId?: string;
+  /** Distinguishes an internal service variant without changing the public route code. */
+  routeVariant?: string;
   routeSeq?: number;
   region?: string;
 }
@@ -30,6 +32,7 @@ export interface RouteStopLink {
   stopId: string;
   provider: ProviderId;
   sourceRouteId?: string;
+  routeVariant?: string;
   routeSeq?: number;
   stopSeq?: number;
 }
@@ -55,7 +58,7 @@ export interface TransitProvider {
   id: ProviderId;
   fetchRoutes(): Promise<Route[]>;
   fetchStops(): Promise<Stop[]>;
-  fetchRouteStops(route: string, bound: 'O' | 'I'): Promise<RouteStopLink[]>;
+  fetchRouteStops(route: string, bound: 'O' | 'I', routeVariant?: string): Promise<RouteStopLink[]>;
   fetchETA(stopId: string, route: string): Promise<ETA[]>;
   fetchTopology?(): Promise<ProviderTopology>;
 }

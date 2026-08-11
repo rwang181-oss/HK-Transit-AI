@@ -4,6 +4,7 @@ import { Stack, useLocalSearchParams } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { getProvider } from '@/src/journey/providers';
 import type { ETA, ProviderId } from '@/src/journey/providers/types';
+import { formatPublicRouteCode } from '@/src/journey/providers/routeDisplay';
 import {
   loadRouteDirection,
   loadStopEta,
@@ -26,14 +27,17 @@ function describeEta(eta: ETA): string {
 
 export default function RouteDetailScreen() {
   const { t, i18n } = useTranslation();
-  const { provider: providerParam, route, bound: boundParam } = useLocalSearchParams<{
+  const { provider: providerParam, route, bound: boundParam, variant: variantParam } = useLocalSearchParams<{
     provider?: string;
     route?: string;
     bound?: string;
+    variant?: string;
   }>();
   const provider = Array.isArray(providerParam) ? undefined : providerParam;
   const routeCode = Array.isArray(route) ? '' : route || '';
   const bound = boundParam === 'I' ? 'I' : boundParam === 'O' ? 'O' : undefined;
+  const routeVariant = Array.isArray(variantParam) ? undefined : variantParam || undefined;
+  const publicRouteCode = isProviderId(provider) ? formatPublicRouteCode(provider, routeCode) : routeCode;
   const isEN = i18n.language === 'en';
   const [stops, setStops] = useState<RouteDirectionStop[]>([]);
   const [expandedStopKey, setExpandedStopKey] = useState<string | null>(null);
@@ -53,7 +57,7 @@ export default function RouteDetailScreen() {
     setLoading(true);
     setLoadError(false);
     void getProvider(provider)
-      .then((transitProvider) => loadRouteDirection(transitProvider, routeCode, bound))
+      .then((transitProvider) => loadRouteDirection(transitProvider, routeCode, bound, routeVariant))
       .then((rows) => {
         if (active) setStops(rows);
       })
@@ -64,11 +68,11 @@ export default function RouteDetailScreen() {
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [provider, routeCode, bound]);
+  }, [provider, routeCode, bound, routeVariant]);
 
   const toggleStop = async (stopId: string) => {
     if (!isProviderId(provider) || !routeCode || !bound) return;
-    const stopKey = getRouteStopStateKey(provider, routeCode, bound, stopId);
+    const stopKey = getRouteStopStateKey(provider, routeCode, bound, stopId, routeVariant);
     if (expandedStopKey === stopKey) {
       setExpandedStopKey(null);
       return;
@@ -87,7 +91,7 @@ export default function RouteDetailScreen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ title: routeCode || t('search.title') }} />
+      <Stack.Screen options={{ title: publicRouteCode || t('search.title') }} />
       {loading ? (
         <View style={styles.center}><Text style={styles.message}>{t('home.loading')}</Text></View>
       ) : loadError ? (
@@ -96,7 +100,7 @@ export default function RouteDetailScreen() {
         <ScrollView style={styles.list}>
           {stops.map(({ link, stop }) => {
             const stopKey = isProviderId(provider) && routeCode && bound
-              ? getRouteStopStateKey(provider, routeCode, bound, stop.stopId)
+              ? getRouteStopStateKey(provider, routeCode, bound, stop.stopId, routeVariant)
               : stop.stopId;
             const expanded = expandedStopKey === stopKey;
             const stopEtas = etas[stopKey];

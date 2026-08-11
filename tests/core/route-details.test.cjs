@@ -30,5 +30,10 @@ const provider = {
     details.getRouteStopStateKey('CTB', '1', 'O', 'a'),
     details.getRouteStopStateKey('MTR', '1', 'I', 'a')
   );
+  assert.notEqual(
+    details.getRouteStopStateKey('MTR', 'EAL', 'O', 'ADM'),
+    details.getRouteStopStateKey('MTR', 'EAL', 'O', 'ADM', 'LMC-UT'),
+    'ETA state must not collapse MTR branch and ordinary services sharing a stop and bound'
+  );
   console.log('route-details.test.cjs: PASS');
 })().catch((error) => { console.error(error); process.exit(1); });

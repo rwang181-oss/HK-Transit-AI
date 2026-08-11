@@ -34,6 +34,8 @@
     "src/journey/comfort/**/*.ts",
     "src/journey/realtime/etaEstimator.ts",
     "src/journey/providers/gmbParser.ts",
+    "src/journey/providers/http.ts",
+    "src/journey/providers/mtr.ts",
     "src/journey/realtime/departureSelector.ts",
     "src/journey/realtime/navigationTiming.ts",
     "src/journey/realtime/navigationProgress.ts",

@@ -14,7 +14,7 @@ const API = 'https://rt.data.gov.hk/v1/transport/mtr/getSchedule.php';
 
 interface MtrRow {
   line: string;
-  direction: string; // DT | UT
+  direction: string; // DT | UT | branch-DT | branch-UT
   stationCode: string;
   nameTc: string;
   nameEn: string;
@@ -32,6 +32,27 @@ const rows: MtrRow[] = (mtrRowsJson as unknown as any[]).map((r) => ({
 
 const lines = [...new Set(rows.map((r) => r.line))];
 
+function boundForDirection(direction: string): 'O' | 'I' | undefined {
+  if (direction.endsWith('UT')) return 'O';
+  if (direction.endsWith('DT')) return 'I';
+  return undefined;
+}
+
+function routeDirection(route: string, bound: 'O' | 'I', routeVariant?: string): { line: string; direction: string } | undefined {
+  if (!route) return undefined;
+  if (routeVariant) {
+    return boundForDirection(routeVariant) === bound
+      ? { line: route, direction: routeVariant }
+      : undefined;
+  }
+  return { line: route, direction: bound === 'O' ? 'UT' : 'DT' };
+}
+
+/** The schedule endpoint accepts a base MTR line, never an internal route variant. */
+export function mtrApiLine(route: string): string {
+  return route.split('~', 1)[0] || route;
+}
+
 function directionRows(line: string, direction: string) {
   return rows
     .filter((r) => r.line === line && r.direction === direction)
@@ -48,27 +69,19 @@ export const mtrProvider: TransitProvider = {
   async fetchRoutes(): Promise<Route[]> {
     const routes: Route[] = [];
     for (const line of lines) {
-      const ut = directionRows(line, 'UT');
-      const dt = directionRows(line, 'DT');
-      if (ut.length) {
+      const directions = [...new Set(rows.filter((row) => row.line === line).map((row) => row.direction))];
+      for (const direction of directions) {
+        const bound = boundForDirection(direction);
+        const directionRoute = directionRows(line, direction);
+        if (!bound || !directionRoute.length) continue;
         routes.push({
           route: line,
-          bound: 'O',
-          orig_en: ut[0].nameEn,
-          orig_tc: ut[0].nameTc,
-          dest_en: ut[ut.length - 1].nameEn,
-          dest_tc: ut[ut.length - 1].nameTc,
-          provider: 'MTR',
-        });
-      }
-      if (dt.length && dt[0].stationCode !== ut[0]?.stationCode) {
-        routes.push({
-          route: line,
-          bound: 'I',
-          orig_en: dt[0].nameEn,
-          orig_tc: dt[0].nameTc,
-          dest_en: dt[dt.length - 1].nameEn,
-          dest_tc: dt[dt.length - 1].nameTc,
+          routeVariant: direction === 'UT' || direction === 'DT' ? undefined : direction,
+          bound,
+          orig_en: directionRoute[0].nameEn,
+          orig_tc: directionRoute[0].nameTc,
+          dest_en: directionRoute[directionRoute.length - 1].nameEn,
+          dest_tc: directionRoute[directionRoute.length - 1].nameTc,
           provider: 'MTR',
         });
       }
@@ -95,11 +108,14 @@ export const mtrProvider: TransitProvider = {
 
   async fetchRouteStops(
     route: string,
-    bound: 'O' | 'I'
+    bound: 'O' | 'I',
+    routeVariant?: string
   ): Promise<RouteStopLink[]> {
-    const dir = bound === 'O' ? 'UT' : 'DT';
-    return directionRows(route, dir).map((r, i) => ({
+    const identity = routeDirection(route, bound, routeVariant);
+    if (!identity) return [];
+    return directionRows(identity.line, identity.direction).map((r, i) => ({
       route,
+      routeVariant,
       bound,
       seq: i + 1,
       stopId: r.stationCode,
@@ -110,17 +126,16 @@ export const mtrProvider: TransitProvider = {
   async fetchTopology() {
     const stops = await this.fetchStops();
     const links: RouteStopLink[] = [];
-    for (const line of lines) {
-      for (const bound of ['O', 'I'] as const) {
-        links.push(...(await this.fetchRouteStops(line, bound)));
-      }
+    for (const route of await this.fetchRoutes()) {
+      links.push(...(await this.fetchRouteStops(route.route, route.bound, route.routeVariant)));
     }
     return { stops, links };
   },
 
   async fetchETA(stopId: string, route: string): Promise<ETA[]> {
-    const json = await scheduleJson(route, stopId);
-    const block = json?.data?.[`${route}-${stopId}`];
+    const line = mtrApiLine(route);
+    const json = await scheduleJson(line, stopId);
+    const block = json?.data?.[`${line}-${stopId}`];
     const out: ETA[] = [];
     for (const direction of ['UP', 'DOWN'] as const) {
       const bound = direction === 'UP' ? 'O' : 'I';

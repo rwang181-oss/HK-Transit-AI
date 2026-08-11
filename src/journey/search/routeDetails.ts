@@ -8,11 +8,12 @@ export interface RouteDirectionStop {
 export async function loadRouteDirection(
   provider: Pick<TransitProvider, 'fetchStops' | 'fetchRouteStops'>,
   route: string,
-  bound: 'O' | 'I'
+  bound: 'O' | 'I',
+  routeVariant?: string
 ): Promise<RouteDirectionStop[]> {
   const [stops, links] = await Promise.all([
     provider.fetchStops(),
-    provider.fetchRouteStops(route, bound),
+    provider.fetchRouteStops(route, bound, routeVariant),
   ]);
   const stopsById = new Map(stops.map((stop) => [stop.stopId, stop]));
 
@@ -40,7 +41,10 @@ export function getRouteStopStateKey(
   provider: ProviderId,
   route: string,
   bound: 'O' | 'I',
-  stopId: string
+  stopId: string,
+  routeVariant?: string
 ): string {
-  return `${provider}:${route}:${bound}:${stopId}`;
+  return routeVariant
+    ? `${provider}:${route}:${bound}:${routeVariant}:${stopId}`
+    : `${provider}:${route}:${bound}:${stopId}`;
 }

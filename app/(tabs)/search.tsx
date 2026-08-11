@@ -32,6 +32,7 @@ export default function SearchScreen() {
       route: item.route,
       bound: item.bound,
     });
+    if (item.routeVariant) params.set('variant', item.routeVariant);
     router.push(`/route-detail?${params.toString()}` as never);
   };
 

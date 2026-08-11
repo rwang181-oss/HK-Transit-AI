@@ -18,6 +18,7 @@ for (const testFile of [
   'tests/core/version-monitor.test.cjs',
   'tests/core/journey-index.test.cjs',
   'tests/core/mtr-stations.test.cjs',
+  'tests/core/mtr-provider.test.cjs',
   'tests/core/journey-index-provider-coverage.test.cjs',
   'tests/core/handoff-web-command.test.cjs',
   'tests/core/handoff-module-load.test.cjs',
