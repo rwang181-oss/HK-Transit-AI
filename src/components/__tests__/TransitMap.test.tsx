@@ -88,7 +88,7 @@ import { TransitMap } from '../TransitMap';
 
 async function finishLeafletInitialization(): Promise<void> {
   await act(async () => {
-    await Promise.resolve();
+    await new Promise<void>((resolve) => setImmediate(resolve));
   });
   expect(mockLoadLeaflet).toHaveBeenCalledTimes(1);
   if (!resolveMockLeaflet) throw new Error('Leaflet loader was not started by the mount effect');
