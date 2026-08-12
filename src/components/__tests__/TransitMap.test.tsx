@@ -86,12 +86,19 @@ jest.mock('react-i18next', () => ({
 import { Pressable } from 'react-native';
 import { TransitMap } from '../TransitMap';
 
+async function waitForLeafletLoader(timeoutMs = 1_000): Promise<void> {
+  const startedAt = Date.now();
+  while (!resolveMockLeaflet) {
+    if (Date.now() - startedAt >= timeoutMs) {
+      throw new Error('Timed out waiting for the Leaflet loader to start');
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 async function finishLeafletInitialization(): Promise<void> {
-  await act(async () => {
-    await new Promise<void>((resolve) => setImmediate(resolve));
-  });
+  await waitForLeafletLoader();
   expect(mockLoadLeaflet).toHaveBeenCalledTimes(1);
-  if (!resolveMockLeaflet) throw new Error('Leaflet loader was not started by the mount effect');
   await act(async () => {
     resolveMockLeaflet!(mockLeaflet);
     await Promise.resolve();
@@ -108,7 +115,7 @@ describe('TransitMap native destination safety', () => {
 
   it('never exposes the current-position marker as a native Apple Maps destination', async () => {
     let renderer: TestRenderer.ReactTestRenderer;
-    await act(async () => {
+    act(() => {
       renderer = TestRenderer.create(
         <TransitMap
           center={{ lat: 22.3, lng: 114.2 }}
@@ -163,7 +170,6 @@ describe('TransitMap web GPS following', () => {
         />,
         { createNodeMock: () => ({}) }
       );
-      await Promise.resolve();
     });
     await finishLeafletInitialization();
 
@@ -227,7 +233,7 @@ describe('TransitMap web GPS following', () => {
     const moved = { lat: 22.2825, lng: 114.1594 };
     const target = { id: 'target-stop', lat: 22.283, lng: 114.16, kind: 'stop' as const, label: 'Target' };
     let renderer: TestRenderer.ReactTestRenderer;
-    await act(async () => {
+    act(() => {
       renderer = TestRenderer.create(
         <TransitMap
           center={initial}
@@ -237,7 +243,6 @@ describe('TransitMap web GPS following', () => {
         />,
         { createNodeMock: () => ({}) }
       );
-      await Promise.resolve();
     });
     await finishLeafletInitialization();
 
