@@ -1,10 +1,20 @@
-import React from 'react';
-import TestRenderer, { act } from 'react-test-renderer';
+/** @jest-environment jsdom */
+
+import React, { act } from 'react';
+import TestRenderer from 'react-test-renderer';
+
+interface DomRoot {
+  render(element: React.ReactNode): void;
+  unmount(): void;
+}
+
+const { createRoot } = require('react-dom/client') as {
+  createRoot(container: Element): DomRoot;
+};
 
 let mockPlatformOS = 'web';
 const mockOpenURL = jest.fn(() => Promise.resolve());
 const mockLoadLeaflet = jest.fn();
-let resolveMockLeaflet: ((leaflet: unknown) => void) | null = null;
 const mapHandlers: Record<string, () => void> = {};
 const mockMap = {
   fitBounds: jest.fn(),
@@ -64,13 +74,32 @@ jest.mock('@/src/components/loadLeaflet', () => ({
 
 jest.mock('react-native', () => {
   const ReactModule = jest.requireActual('react');
-  const host = (name: string) => ReactModule.forwardRef((props: any, ref: any) =>
-    ReactModule.createElement(name, { ...props, ref }, props.children));
+  const host = (tag: string) => ReactModule.forwardRef((props: any, ref: any) => {
+    const {
+      accessibilityLabel,
+      accessibilityRole,
+      children,
+      onPress,
+      style: rawStyle,
+      ...rest
+    } = props;
+    const style = Array.isArray(rawStyle)
+      ? Object.assign({}, ...rawStyle.filter(Boolean))
+      : rawStyle;
+    return ReactModule.createElement(tag, {
+      ...rest,
+      'aria-label': accessibilityLabel,
+      onClick: onPress,
+      ref,
+      role: accessibilityRole,
+      style,
+    }, children);
+  });
   return {
-    ActivityIndicator: host('ActivityIndicator'),
-    Pressable: host('Pressable'),
-    Text: host('Text'),
-    View: host('View'),
+    ActivityIndicator: host('div'),
+    Pressable: host('button'),
+    Text: host('span'),
+    View: host('div'),
     Platform: {
       get OS() { return mockPlatformOS; },
     },
@@ -86,16 +115,42 @@ jest.mock('react-i18next', () => ({
 import { Pressable } from 'react-native';
 import { TransitMap } from '../TransitMap';
 
+async function waitForLeafletMapReady(timeoutMs = 1_000): Promise<void> {
+  const startedAt = Date.now();
+  while (!mapHandlers.dragstart) {
+    if (Date.now() - startedAt >= timeoutMs) {
+      throw new Error('Timed out waiting for the Leaflet map to become ready');
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 async function finishLeafletInitialization(): Promise<void> {
   await act(async () => {
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await waitForLeafletMapReady();
   });
   expect(mockLoadLeaflet).toHaveBeenCalledTimes(1);
-  if (!resolveMockLeaflet) throw new Error('Leaflet loader was not started by the mount effect');
+}
+
+async function mountWebMap(element: React.ReactElement): Promise<{
+  container: HTMLDivElement;
+  root: DomRoot;
+}> {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
   await act(async () => {
-    resolveMockLeaflet!(mockLeaflet);
-    await Promise.resolve();
+    root.render(element);
   });
+  await finishLeafletInitialization();
+  return { container, root };
+}
+
+async function unmountWebMap(container: HTMLDivElement, root: DomRoot): Promise<void> {
+  await act(async () => {
+    root.unmount();
+  });
+  container.remove();
 }
 
 describe('TransitMap native destination safety', () => {
@@ -108,7 +163,7 @@ describe('TransitMap native destination safety', () => {
 
   it('never exposes the current-position marker as a native Apple Maps destination', async () => {
     let renderer: TestRenderer.ReactTestRenderer;
-    await act(async () => {
+    act(() => {
       renderer = TestRenderer.create(
         <TransitMap
           center={{ lat: 22.3, lng: 114.2 }}
@@ -130,10 +185,11 @@ describe('TransitMap web GPS following', () => {
     markerInstances.length = 0;
     polylineInstances.length = 0;
     for (const key of Object.keys(mapHandlers)) delete mapHandlers[key];
-    resolveMockLeaflet = null;
-    mockLoadLeaflet.mockImplementation(() => new Promise((resolve) => {
-      resolveMockLeaflet = resolve;
-    }));
+    mockLoadLeaflet.mockResolvedValue(mockLeaflet);
+    global.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    }) as typeof requestAnimationFrame;
   });
 
   it('moves a keyed marker without rebuilding the map, tiles, or unchanged route', async () => {
@@ -151,21 +207,15 @@ describe('TransitMap web GPS following', () => {
       points: [initial, target],
       dashed: true,
     };
-    let renderer: TestRenderer.ReactTestRenderer;
-    await act(async () => {
-      renderer = TestRenderer.create(
-        <TransitMap
-          center={initial}
-          points={[{ id: 'current-location', ...initial, kind: 'me' }, target]}
-          paths={[route]}
-          followPoint={initial}
-          followZoom={17}
-        />,
-        { createNodeMock: () => ({}) }
-      );
-      await Promise.resolve();
-    });
-    await finishLeafletInitialization();
+    const { container, root } = await mountWebMap(
+      <TransitMap
+        center={initial}
+        points={[{ id: 'current-location', ...initial, kind: 'me' }, target]}
+        paths={[route]}
+        followPoint={initial}
+        followZoom={17}
+      />
+    );
 
     expect(mapHandlers.dragstart).toBeDefined();
 
@@ -175,7 +225,7 @@ describe('TransitMap web GPS following', () => {
     const unchangedRoute = polylineInstances[0];
 
     await act(async () => {
-      renderer!.update(
+      root.render(
         <TransitMap
           center={moved}
           points={[{ id: 'current-location', ...moved, kind: 'me' }, target]}
@@ -201,7 +251,7 @@ describe('TransitMap web GPS following', () => {
       points: [initial, moved, target],
     };
     await act(async () => {
-      renderer!.update(
+      root.render(
         <TransitMap
           center={moved}
           points={[{ id: 'current-location', ...moved, kind: 'me' }, target]}
@@ -218,7 +268,7 @@ describe('TransitMap web GPS following', () => {
       [moved.lat, moved.lng],
       [target.lat, target.lng],
     ]);
-    act(() => renderer!.unmount());
+    await unmountWebMap(container, root);
   });
 
   it('recenter resumes following later GPS updates at the requested zoom', async () => {
@@ -226,27 +276,21 @@ describe('TransitMap web GPS following', () => {
     const whileDragged = { lat: 22.2821, lng: 114.159 };
     const moved = { lat: 22.2825, lng: 114.1594 };
     const target = { id: 'target-stop', lat: 22.283, lng: 114.16, kind: 'stop' as const, label: 'Target' };
-    let renderer: TestRenderer.ReactTestRenderer;
-    await act(async () => {
-      renderer = TestRenderer.create(
-        <TransitMap
-          center={initial}
-          points={[{ id: 'current-location', ...initial, kind: 'me' }, target]}
-          followPoint={initial}
-          followZoom={17}
-        />,
-        { createNodeMock: () => ({}) }
-      );
-      await Promise.resolve();
-    });
-    await finishLeafletInitialization();
+    const { container, root } = await mountWebMap(
+      <TransitMap
+        center={initial}
+        points={[{ id: 'current-location', ...initial, kind: 'me' }, target]}
+        followPoint={initial}
+        followZoom={17}
+      />
+    );
 
     expect(mapHandlers.dragstart).toBeDefined();
 
     mockMap.setView.mockClear();
     act(() => mapHandlers.dragstart());
     await act(async () => {
-      renderer!.update(
+      root.render(
         <TransitMap
           center={whileDragged}
           points={[{ id: 'current-location', ...whileDragged, kind: 'me' }, target]}
@@ -257,20 +301,23 @@ describe('TransitMap web GPS following', () => {
     });
     expect(mockMap.setView).not.toHaveBeenCalled();
 
-    const recenterButton = renderer!.root.findByProps({ accessibilityLabel: 'navigation.recenter' });
+    const recenterButton = container.querySelector<HTMLButtonElement>(
+      '[aria-label="navigation.recenter"]'
+    );
+    expect(recenterButton).not.toBeNull();
     act(() => {
-      recenterButton.props.onPress();
+      recenterButton!.click();
     });
     expect(mockMap.setView).toHaveBeenLastCalledWith(
       [whileDragged.lat, whileDragged.lng],
       17,
       { animate: false }
     );
-    expect(renderer!.root.findAllByProps({ accessibilityLabel: 'navigation.recenter' })).toHaveLength(0);
+    expect(container.querySelector('[aria-label="navigation.recenter"]')).toBeNull();
 
     mockMap.setView.mockClear();
     await act(async () => {
-      renderer!.update(
+      root.render(
         <TransitMap
           center={moved}
           points={[{ id: 'current-location', ...moved, kind: 'me' }, target]}
@@ -284,7 +331,7 @@ describe('TransitMap web GPS following', () => {
       17,
       { animate: false }
     );
-    expect(renderer!.root.findAllByProps({ accessibilityLabel: 'navigation.recenter' })).toHaveLength(0);
-    act(() => renderer!.unmount());
+    expect(container.querySelector('[aria-label="navigation.recenter"]')).toBeNull();
+    await unmountWebMap(container, root);
   });
 });
