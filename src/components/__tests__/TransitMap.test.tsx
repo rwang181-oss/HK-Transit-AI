@@ -4,7 +4,6 @@ import TestRenderer, { act } from 'react-test-renderer';
 let mockPlatformOS = 'web';
 const mockOpenURL = jest.fn(() => Promise.resolve());
 const mockLoadLeaflet = jest.fn();
-let resolveMockLeaflet: ((leaflet: unknown) => void) | null = null;
 const mapHandlers: Record<string, () => void> = {};
 const mockMap = {
   fitBounds: jest.fn(),
@@ -86,23 +85,21 @@ jest.mock('react-i18next', () => ({
 import { Pressable } from 'react-native';
 import { TransitMap } from '../TransitMap';
 
-async function waitForLeafletLoader(timeoutMs = 1_000): Promise<void> {
+async function waitForLeafletMapReady(timeoutMs = 1_000): Promise<void> {
   const startedAt = Date.now();
-  while (!resolveMockLeaflet) {
+  while (!mapHandlers.dragstart) {
     if (Date.now() - startedAt >= timeoutMs) {
-      throw new Error('Timed out waiting for the Leaflet loader to start');
+      throw new Error('Timed out waiting for the Leaflet map to become ready');
     }
     await new Promise<void>((resolve) => setTimeout(resolve, 5));
   }
 }
 
 async function finishLeafletInitialization(): Promise<void> {
-  await waitForLeafletLoader();
-  expect(mockLoadLeaflet).toHaveBeenCalledTimes(1);
   await act(async () => {
-    resolveMockLeaflet!(mockLeaflet);
-    await Promise.resolve();
+    await waitForLeafletMapReady();
   });
+  expect(mockLoadLeaflet).toHaveBeenCalledTimes(1);
 }
 
 describe('TransitMap native destination safety', () => {
@@ -137,10 +134,7 @@ describe('TransitMap web GPS following', () => {
     markerInstances.length = 0;
     polylineInstances.length = 0;
     for (const key of Object.keys(mapHandlers)) delete mapHandlers[key];
-    resolveMockLeaflet = null;
-    mockLoadLeaflet.mockImplementation(() => new Promise((resolve) => {
-      resolveMockLeaflet = resolve;
-    }));
+    mockLoadLeaflet.mockResolvedValue(mockLeaflet);
   });
 
   it('moves a keyed marker without rebuilding the map, tiles, or unchanged route', async () => {
